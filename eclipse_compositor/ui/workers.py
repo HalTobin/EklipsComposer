@@ -1,0 +1,196 @@
+"""Background QRunnable workers for import, preview, and export.
+
+Heavy OpenCV work never runs on the GUI thread.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+import numpy as np
+from PySide6.QtCore import QObject, QRunnable, Signal, Slot
+
+from eclipse_compositor.cv.layout import LayoutType
+from eclipse_compositor.cv.loading import load_image_bgr, make_proxy
+from eclipse_compositor.cv.pipeline import ComposeParams, compose_sequence, export_composite
+from eclipse_compositor.ui.state import ImageItem
+
+logger = logging.getLogger(__name__)
+
+
+class WorkerSignals(QObject):
+    """Qt signals emitted by background workers (must live on QObject).
+
+    Own these on the ViewModel (main thread) so queued emissions are not lost
+    when a QRunnable is reclaimed by the thread pool.
+    """
+
+    progress = Signal(float, str)
+    import_finished = Signal(object, int)  # list[ImageItem], generation
+    preview_finished = Signal(object, int, object, object)  # bgr, gen, skipped, flags
+    export_finished = Signal(object, object)  # Path, skipped
+    failed = Signal(str)
+
+
+class ImportWorker(QRunnable):
+    """Load images in the given order and build proxy cache entries."""
+
+    def __init__(
+        self,
+        paths: list[Path],
+        proxy_cache: dict[Path, np.ndarray],
+        full_shapes: dict[Path, tuple[int, int]],
+        generation: int,
+        signals: WorkerSignals,
+        max_edge: int = 1080,
+    ) -> None:
+        super().__init__()
+        self.paths = paths
+        self.proxy_cache = proxy_cache
+        self.full_shapes = full_shapes
+        self.generation = generation
+        self.signals = signals
+        self.max_edge = max_edge
+        self.setAutoDelete(True)
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            # Preserve the order the user selected in the file dialog.
+            ordered = list(self.paths)
+            items: list[ImageItem] = []
+            total = max(1, len(ordered))
+            for i, path in enumerate(ordered):
+                self.signals.progress.emit((i + 1) / total, f"Loading {path.name}…")
+                try:
+                    full = load_image_bgr(path)
+                    h, w = full.shape[:2]
+                    self.full_shapes[path] = (h, w)
+                    self.proxy_cache[path] = make_proxy(full, max_edge=self.max_edge)
+                    items.append(ImageItem(path=path, enabled=True))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Failed to import %s: %s", path, exc)
+            self.signals.import_finished.emit(items, self.generation)
+        except Exception as exc:  # noqa: BLE001
+            self.signals.failed.emit(str(exc))
+
+
+class PreviewWorker(QRunnable):
+    """Compose a preview from downscaled proxies."""
+
+    def __init__(
+        self,
+        paths: list[Path],
+        proxy_cache: dict[Path, np.ndarray],
+        full_shapes: dict[Path, tuple[int, int]],
+        params: ComposeParams,
+        generation: int,
+        signals: WorkerSignals,
+    ) -> None:
+        super().__init__()
+        self.paths = paths
+        self.proxy_cache = proxy_cache
+        self.full_shapes = full_shapes
+        self.params = params
+        self.generation = generation
+        self.signals = signals
+        self.setAutoDelete(True)
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.signals.progress.emit(0.1, "Compositing preview…")
+            proxy_params = self._scaled_params()
+            images = {p: self.proxy_cache[p] for p in self.paths if p in self.proxy_cache}
+            composite, used, skipped = compose_sequence(
+                self.paths, proxy_params, images=images
+            )
+            flags = tuple((p, p in used) for p in self.paths)
+            self.signals.progress.emit(1.0, "Preview ready.")
+            self.signals.preview_finished.emit(
+                composite, self.generation, tuple(skipped), flags
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Preview failed")
+            self.signals.failed.emit(str(exc))
+
+    def _scaled_params(self) -> ComposeParams:
+        """Map full-res crop/padding onto proxy scale using cached shapes."""
+        if not self.paths:
+            return self.params
+        first = self.paths[0]
+        proxy = self.proxy_cache.get(first)
+        full_shape = self.full_shapes.get(first)
+        if proxy is None:
+            return self.params
+        if full_shape is not None:
+            full_h, full_w = full_shape
+            proxy_h, proxy_w = proxy.shape[:2]
+            scale = min(proxy_w / max(full_w, 1), proxy_h / max(full_h, 1))
+        else:
+            scale = max(proxy.shape[:2]) / 4000.0
+        return ComposeParams(
+            crop_size=max(32, int(round(self.params.crop_size * scale))),
+            spacing=self.params.spacing,
+            layout=self.params.layout,
+            curvature=self.params.curvature,
+            threshold=self.params.threshold,
+            padding=max(8, int(round(self.params.padding * scale))),
+            radius_margin=self.params.radius_margin,
+            grid_columns=self.params.grid_columns,
+            grid_rows=self.params.grid_rows,
+        )
+
+
+class ExportWorker(QRunnable):
+    """Full-resolution compose + write to disk."""
+
+    def __init__(
+        self,
+        paths: list[Path],
+        params: ComposeParams,
+        output_path: Path,
+        signals: WorkerSignals,
+    ) -> None:
+        super().__init__()
+        self.paths = paths
+        self.params = params
+        self.output_path = output_path
+        self.signals = signals
+        self.setAutoDelete(True)
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.signals.progress.emit(0.05, "Exporting full-resolution composite…")
+            _, _used, skipped = export_composite(
+                self.paths, self.params, self.output_path
+            )
+            self.signals.progress.emit(1.0, f"Saved {self.output_path.name}")
+            self.signals.export_finished.emit(self.output_path, tuple(skipped))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Export failed")
+            self.signals.failed.emit(str(exc))
+
+
+def params_from_state(
+    crop_size: int,
+    spacing: float,
+    layout: LayoutType,
+    curvature: float,
+    threshold: int,
+    grid_columns: int = 3,
+    grid_rows: int = 2,
+) -> ComposeParams:
+    """Build ComposeParams from UI scalar fields."""
+    return ComposeParams(
+        crop_size=crop_size,
+        spacing=spacing,
+        layout=layout,
+        curvature=curvature,
+        threshold=threshold,
+        padding=40,
+        grid_columns=grid_columns,
+        grid_rows=grid_rows,
+    )

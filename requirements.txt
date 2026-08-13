@@ -1,0 +1,4 @@
+numpy>=1.26.0
+Pillow>=10.2.0
+PySide6-Essentials>=6.6.0
+piexif>=1.1.3

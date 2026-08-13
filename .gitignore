@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.dist/
+dist/
+build/
+output/
+.DS_Store
+*.iconset
+*.tif
+*.tiff
+eclipse_composite.*
+.idea/
+.vscode/
