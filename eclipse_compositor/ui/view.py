@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon
+from PySide6.QtGui import QAction, QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -20,19 +20,31 @@ from eclipse_compositor.ui.actions import (
     ClearImages,
     ExportComposite,
     LoadImages,
+    OpenProject,
     ReorderImages,
     RequestPreview,
+    ResetColorimetry,
+    SaveProject,
     SelectImage,
+    SelectSidebarTab,
     ToggleImage,
+    UpdateArcAngle,
+    UpdateBrightness,
+    UpdateContrast,
     UpdateCropSize,
     UpdateDirection,
+    UpdateGamma,
     UpdateGridColumns,
     UpdateGridRows,
     UpdateLayout,
+    UpdateMaskEnabled,
+    UpdateMaskFeather,
+    UpdateMaskSize,
+    UpdateSaturation,
     UpdateSpacing,
+    UpdateTemperature,
     UpdateThreshold,
     UpdateZoom,
-    UpdateArcAngle,
 )
 from eclipse_compositor.cv.loading import image_dialog_globs
 from eclipse_compositor.cv.video import (
@@ -41,6 +53,7 @@ from eclipse_compositor.cv.video import (
     probe_video,
     video_dialog_globs,
 )
+from eclipse_compositor.project import PROJECT_SUFFIX, is_project_file
 from eclipse_compositor.resources import app_icon_path
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
 from eclipse_compositor.ui.state import JobStatus, ScreenState
@@ -77,13 +90,16 @@ class ScreenView(QMainWindow):
         hsplit.setStretchFactor(0, 0)
         hsplit.setStretchFactor(1, 4)
         hsplit.setStretchFactor(2, 1)
-        hsplit.setSizes([260, 740, 280])
+        hsplit.setSizes([300, 700, 280])
         h.addWidget(hsplit)
         self.setCentralWidget(root)
         self.setAcceptDrops(True)
+        self._build_file_menu()
 
         # Intents → dispatch
         self.sidebar.import_clicked.connect(self._on_import)
+        self.sidebar.open_clicked.connect(self._on_open)
+        self.sidebar.save_clicked.connect(self._on_save)
         self.sidebar.clear_clicked.connect(
             lambda: self.view_model.dispatch(ClearImages())
         )
@@ -115,6 +131,36 @@ class ScreenView(QMainWindow):
         self.sidebar.grid_rows_changed.connect(
             lambda v: self.view_model.dispatch(UpdateGridRows(v))
         )
+        self.sidebar.sidebar_tab_changed.connect(
+            lambda v: self.view_model.dispatch(SelectSidebarTab(v))
+        )
+        self.sidebar.contrast_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateContrast(v))
+        )
+        self.sidebar.saturation_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateSaturation(v))
+        )
+        self.sidebar.brightness_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateBrightness(v))
+        )
+        self.sidebar.gamma_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateGamma(v))
+        )
+        self.sidebar.temperature_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateTemperature(v))
+        )
+        self.sidebar.reset_colorimetry_clicked.connect(
+            lambda: self.view_model.dispatch(ResetColorimetry())
+        )
+        self.sidebar.mask_enabled_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateMaskEnabled(v))
+        )
+        self.sidebar.mask_size_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateMaskSize(v))
+        )
+        self.sidebar.mask_feather_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateMaskFeather(v))
+        )
         self.gallery.toggle_image.connect(
             lambda i, e: self.view_model.dispatch(ToggleImage(i, e))
         )
@@ -136,6 +182,10 @@ class ScreenView(QMainWindow):
 
     def render(self, state: ScreenState) -> None:
         """Single render entry: sync all child widgets to *state*."""
+        if state.last_project_path is not None:
+            self.setWindowTitle(f"VulturEklips — {state.last_project_path.name}")
+        else:
+            self.setWindowTitle("VulturEklips")
         self.sidebar.render(state)
         self.gallery.render(state)
         preview = state.preview_bgr
@@ -145,6 +195,14 @@ class ScreenView(QMainWindow):
             self.viewport.set_preview(preview, fit=True)  # type: ignore[arg-type]
         elif not self.viewport.is_fit_mode():
             self.viewport.set_zoom(state.zoom)
+        has_images = len(state.images) > 0
+        busy = (
+            state.import_status == JobStatus.RUNNING
+            or state.export_status == JobStatus.RUNNING
+            or state.preview_status == JobStatus.RUNNING
+        )
+        self._open_action.setEnabled(not busy)
+        self._save_action.setEnabled(not busy and has_images)
 
     def _import_busy(self) -> bool:
         """True when a drop/import would conflict with a running job."""
@@ -182,6 +240,10 @@ class ScreenView(QMainWindow):
     def _import_paths(self, paths: tuple[Path, ...]) -> None:
         """Dispatch LoadImages after a file dialog or a drop."""
         if not paths or self._import_busy():
+            return
+        project_files = [path for path in paths if is_project_file(path)]
+        if project_files:
+            self._open_project_path(project_files[0])
             return
         videos = [path for path in paths if is_supported_video(path)]
         if videos:
@@ -269,3 +331,72 @@ class ScreenView(QMainWindow):
             else:
                 out = out.with_suffix(".tif")
         self.view_model.dispatch(ExportComposite(out))
+
+    def _build_file_menu(self) -> None:
+        """File menu for opening and saving ``.vlt`` projects."""
+        menu = self.menuBar().addMenu("&File")
+        self._open_action = QAction("Open Project…", self)
+        self._open_action.setShortcut(QKeySequence.StandardKey.Open)
+        self._open_action.triggered.connect(self._on_open)
+        menu.addAction(self._open_action)
+        self._save_action = QAction("Save Project…", self)
+        self._save_action.setShortcut(QKeySequence.StandardKey.Save)
+        self._save_action.triggered.connect(self._on_save)
+        menu.addAction(self._save_action)
+
+    def _on_open(self) -> None:
+        if self._import_busy():
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open project",
+            "",
+            f"VulturEklips project (*{PROJECT_SUFFIX})",
+        )
+        if not path:
+            return
+        self._open_project_path(Path(path))
+
+    def _on_save(self) -> None:
+        if self._import_busy():
+            return
+        if not self.view_model.state.images:
+            return
+        suggested = "composition.vlt"
+        if self.view_model.state.last_project_path is not None:
+            suggested = str(self.view_model.state.last_project_path)
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save project",
+            suggested,
+            f"VulturEklips project (*{PROJECT_SUFFIX})",
+        )
+        if not path:
+            return
+        out = Path(path)
+        if out.suffix.lower() != PROJECT_SUFFIX:
+            out = out.with_suffix(PROJECT_SUFFIX)
+        self.view_model.dispatch(SaveProject(out))
+
+    def _open_project_path(self, path: Path) -> None:
+        """Confirm replace if needed, then dispatch OpenProject."""
+        if self._import_busy():
+            return
+        if not path.is_file():
+            QMessageBox.warning(
+                self,
+                "Could not open project",
+                f"File not found:\n{path}",
+            )
+            return
+        if self.view_model.state.images:
+            answer = QMessageBox.question(
+                self,
+                "Open project",
+                "Opening a project replaces the current composition. Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self.view_model.dispatch(OpenProject(path))

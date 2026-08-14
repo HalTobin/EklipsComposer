@@ -14,3 +14,4 @@ third_party/ffmpeg/
 eclipse_composite.*
 .idea/
 .vscode/
+.cursorrules

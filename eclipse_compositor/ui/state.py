@@ -12,6 +12,25 @@ from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 DEFAULT_MAX_RESOLUTION: int = 2400
 MIN_RESOLUTION: int = 200
 
+# Colorimetry identity (Reset restores these).
+DEFAULT_CONTRAST: float = 1.0
+DEFAULT_SATURATION: float = 1.0
+DEFAULT_BRIGHTNESS: float = 0.0
+DEFAULT_GAMMA: float = 1.0
+DEFAULT_TEMPERATURE: float = 0.0
+
+# Circular mask defaults (mask is off until the user enables it).
+DEFAULT_MASK_SIZE: float = 0.90
+DEFAULT_MASK_FEATHER: float = 0.20
+
+
+class SidebarTab(str, Enum):
+    """Active page in the sidebar parameter tabs."""
+
+    COMPOSITE = "composite"
+    COLORIMETRY = "colorimetry"
+    MASK = "mask"
+
 
 class JobStatus(str, Enum):
     """Background job lifecycle for preview / export / import."""
@@ -58,10 +77,20 @@ class ScreenState:
     export_status: JobStatus = JobStatus.IDLE
     progress: float = 0.0  # 0–1
     last_export_path: Path | None = None
+    last_project_path: Path | None = None
     error_message: str | None = None
     selected_index: int | None = None
     proxy_ready: bool = False
     zoom: float = 1.0
+    sidebar_tab: SidebarTab = SidebarTab.COMPOSITE
+    contrast: float = DEFAULT_CONTRAST
+    saturation: float = DEFAULT_SATURATION
+    brightness: float = DEFAULT_BRIGHTNESS
+    gamma: float = DEFAULT_GAMMA
+    temperature: float = DEFAULT_TEMPERATURE
+    mask_enabled: bool = False
+    mask_size: float = DEFAULT_MASK_SIZE
+    mask_feather: float = DEFAULT_MASK_FEATHER
 
     # Internal bookkeeping (not rendered directly)
     _proxy_generation: int = 0

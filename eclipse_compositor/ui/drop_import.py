@@ -6,11 +6,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QMimeData
 
+from eclipse_compositor.project import is_project_file
 from eclipse_compositor.cv.loading import collect_import_paths, is_importable
 
 
 def mime_has_importable_paths(mime: QMimeData) -> bool:
-    """Return True if *mime* contains local image/video files or folders."""
+    """Return True if *mime* contains importable files, folders, or a ``.vlt`` project."""
     if not mime.hasUrls():
         return False
     for url in mime.urls():
@@ -18,16 +19,24 @@ def mime_has_importable_paths(mime: QMimeData) -> bool:
         if not local:
             continue
         path = Path(local)
+        if path.is_file() and is_project_file(path):
+            return True
         if path.is_dir() or is_importable(path):
             return True
     return False
 
 
 def paths_from_mime(mime: QMimeData) -> list[Path]:
-    """Extract supported image and video paths from a drop *mime* payload."""
-    candidates: list[Path] = []
+    """Extract project, image, or video paths from a drop *mime* payload.
+
+    A dropped ``.vlt`` project takes precedence over stills/videos.
+    """
+    collected: list[Path] = []
     for url in mime.urls():
         local = url.toLocalFile()
         if local:
-            candidates.append(Path(local))
-    return collect_import_paths(candidates)
+            collected.append(Path(local))
+    for path in collected:
+        if path.is_file() and is_project_file(path):
+            return [path]
+    return collect_import_paths(collected)

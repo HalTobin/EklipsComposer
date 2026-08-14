@@ -258,7 +258,7 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "VulturEklips",
         "CFBundleName": "VulturEklips",
-        "CFBundleShortVersionString": "0.2.0",
+        "CFBundleShortVersionString": "0.3.0",
         "NSHighResolutionCapable": True,
     },
 )

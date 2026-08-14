@@ -22,29 +22,54 @@ from eclipse_compositor.ui.actions import (
     ImportFinished,
     ImportProgress,
     LoadImages,
+    OpenProject,
+    OpenProjectFailed,
+    OpenProjectFinished,
+    OpenProjectProgress,
     PreviewFailed,
     PreviewFinished,
     PreviewProgress,
     ReorderImages,
     RequestPreview,
+    ResetColorimetry,
+    SaveProject,
+    SaveProjectFailed,
+    SaveProjectFinished,
+    SaveProjectProgress,
     ScreenAction,
     SelectImage,
+    SelectSidebarTab,
     ToggleImage,
     UpdateArcAngle,
+    UpdateBrightness,
+    UpdateContrast,
     UpdateCropSize,
     UpdateDirection,
+    UpdateGamma,
     UpdateGridColumns,
     UpdateGridRows,
     UpdateLayout,
+    UpdateMaskEnabled,
+    UpdateMaskFeather,
+    UpdateMaskSize,
+    UpdateSaturation,
     UpdateSpacing,
+    UpdateTemperature,
     UpdateThreshold,
     UpdateZoom,
 )
+from eclipse_compositor.ui.project_mapping import blueprint_from_state, state_from_document
 from eclipse_compositor.ui.state import (
+    DEFAULT_BRIGHTNESS,
+    DEFAULT_CONTRAST,
+    DEFAULT_GAMMA,
     DEFAULT_MAX_RESOLUTION,
+    DEFAULT_SATURATION,
+    DEFAULT_TEMPERATURE,
     MIN_RESOLUTION,
     JobStatus,
     ScreenState,
+    SidebarTab,
     default_state,
     enabled_paths,
     native_max_from_shapes,
@@ -53,6 +78,9 @@ from eclipse_compositor.ui.workers import (
     ExportWorker,
     ImportWorker,
     PreviewWorker,
+    ProjectOpenResult,
+    ProjectOpenWorker,
+    ProjectSaveWorker,
     WorkerSignals,
     params_from_state,
 )
@@ -74,6 +102,8 @@ class ScreenViewModel(QObject):
         self._full_shapes: dict[Path, tuple[int, int]] = {}
         self._video_tmpdir: tempfile.TemporaryDirectory[str] | None = None
         self._thumb_tmpdir: tempfile.TemporaryDirectory[str] | None = None
+        self._project_tmpdir: tempfile.TemporaryDirectory[str] | None = None
+        self._open_staging: tempfile.TemporaryDirectory[str] | None = None
         self._preview_debounce = QTimer(self)
         self._preview_debounce.setSingleShot(True)
         self._preview_debounce.setInterval(180)
@@ -84,6 +114,8 @@ class ScreenViewModel(QObject):
         self._import_signals = WorkerSignals(self)
         self._preview_signals = WorkerSignals(self)
         self._export_signals = WorkerSignals(self)
+        self._save_signals = WorkerSignals(self)
+        self._open_signals = WorkerSignals(self)
         self._wire_worker_signals()
 
     def _wire_worker_signals(self) -> None:
@@ -117,6 +149,26 @@ class ScreenViewModel(QObject):
         )
         self._export_signals.failed.connect(lambda m: self.dispatch(ExportFailed(m)))
 
+        self._save_signals.progress.connect(
+            lambda p, m: self.dispatch(SaveProjectProgress(p, m))
+        )
+        self._save_signals.project_saved.connect(
+            lambda path: self.dispatch(SaveProjectFinished(Path(path)))
+        )
+        self._save_signals.failed.connect(lambda m: self.dispatch(SaveProjectFailed(m)))
+
+        self._open_signals.progress.connect(
+            lambda p, m: self.dispatch(OpenProjectProgress(p, m))
+        )
+        self._open_signals.project_opened.connect(
+            lambda result, g: self.dispatch(OpenProjectFinished(result, g))
+        )
+        self._open_signals.failed.connect(
+            lambda m: self.dispatch(
+                OpenProjectFailed(m, self._state._proxy_generation)
+            )
+        )
+
     @property
     def state(self) -> ScreenState:
         return self._state
@@ -144,26 +196,14 @@ class ScreenViewModel(QObject):
         )
 
     def _compose_params(self) -> ComposeParams:
-        return params_from_state(
-            self._state.crop_size,
-            self._state.spacing,
-            self._state.layout,
-            self._state.arc_angle,
-            self._state.direction,
-            self._state.threshold,
-            self._state.grid_columns,
-            self._state.grid_rows,
-        )
+        return params_from_state(self._state)
 
     @Slot(object)
     def dispatch(self, action: ScreenAction) -> None:
         """Apply *action* using structural pattern matching and emit new state."""
         match action:
             case LoadImages(paths=paths, video_frame_step=video_frame_step):
-                if (
-                    self._state.import_status == JobStatus.RUNNING
-                    or self._state.export_status == JobStatus.RUNNING
-                ):
+                if self._io_busy():
                     return
                 if not paths:
                     return
@@ -174,6 +214,8 @@ class ScreenViewModel(QObject):
                 self._full_shapes.clear()
                 self._clear_video_tmpdir()
                 self._clear_thumb_tmpdir()
+                self._clear_project_tmpdir()
+                self._clear_open_staging()
                 self._emit(
                     replace(
                         self._state,
@@ -185,6 +227,7 @@ class ScreenViewModel(QObject):
                         error_message=None,
                         selected_index=None,
                         selected_preview_bgr=None,
+                        last_project_path=None,
                         import_status=JobStatus.IDLE,
                         export_status=JobStatus.IDLE,
                         preview_status=JobStatus.IDLE,
@@ -269,11 +312,106 @@ class ScreenViewModel(QObject):
                     return
                 self._emit(replace(self._state, zoom=zoom))
 
+            case SelectSidebarTab(value=value):
+                tab = value if isinstance(value, SidebarTab) else SidebarTab(value)
+                if tab == self._state.sidebar_tab:
+                    return
+                self._emit(replace(self._state, sidebar_tab=tab))
+
+            case UpdateContrast(value=value):
+                self._emit(
+                    replace(self._state, contrast=max(0.5, min(2.0, float(value))))
+                )
+                self._schedule_preview()
+
+            case UpdateSaturation(value=value):
+                self._emit(
+                    replace(self._state, saturation=max(0.0, min(2.0, float(value))))
+                )
+                self._schedule_preview()
+
+            case UpdateBrightness(value=value):
+                self._emit(
+                    replace(
+                        self._state, brightness=max(-100.0, min(100.0, float(value)))
+                    )
+                )
+                self._schedule_preview()
+
+            case UpdateGamma(value=value):
+                self._emit(
+                    replace(self._state, gamma=max(0.5, min(2.0, float(value))))
+                )
+                self._schedule_preview()
+
+            case UpdateTemperature(value=value):
+                self._emit(
+                    replace(
+                        self._state, temperature=max(-100.0, min(100.0, float(value)))
+                    )
+                )
+                self._schedule_preview()
+
+            case ResetColorimetry():
+                already_default = (
+                    abs(self._state.contrast - DEFAULT_CONTRAST) < 1e-6
+                    and abs(self._state.saturation - DEFAULT_SATURATION) < 1e-6
+                    and abs(self._state.brightness - DEFAULT_BRIGHTNESS) < 1e-6
+                    and abs(self._state.gamma - DEFAULT_GAMMA) < 1e-6
+                    and abs(self._state.temperature - DEFAULT_TEMPERATURE) < 1e-6
+                )
+                if already_default:
+                    return
+                self._emit(
+                    replace(
+                        self._state,
+                        contrast=DEFAULT_CONTRAST,
+                        saturation=DEFAULT_SATURATION,
+                        brightness=DEFAULT_BRIGHTNESS,
+                        gamma=DEFAULT_GAMMA,
+                        temperature=DEFAULT_TEMPERATURE,
+                    )
+                )
+                self._schedule_preview()
+
+            case UpdateMaskEnabled(value=value):
+                enabled = bool(value)
+                if enabled == self._state.mask_enabled:
+                    return
+                self._emit(replace(self._state, mask_enabled=enabled))
+                self._schedule_preview()
+
+            case UpdateMaskSize(value=value):
+                self._emit(
+                    replace(self._state, mask_size=max(0.0, min(1.50, float(value))))
+                )
+                self._schedule_preview()
+
+            case UpdateMaskFeather(value=value):
+                self._emit(
+                    replace(
+                        self._state, mask_feather=max(0.0, min(0.80, float(value)))
+                    )
+                )
+                self._schedule_preview()
+
             case RequestPreview():
                 self._run_preview()
 
             case ExportComposite(output_path=output_path):
+                if self._io_busy():
+                    return
                 self._start_export(Path(output_path))
+
+            case SaveProject(output_path=output_path):
+                if self._io_busy():
+                    return
+                self._start_save(Path(output_path))
+
+            case OpenProject(path=path):
+                if self._io_busy():
+                    return
+                self._start_open(Path(path))
 
             case ImportProgress(progress=progress, message=message):
                 self._emit(
@@ -417,6 +555,77 @@ class ScreenViewModel(QObject):
                     )
                 )
 
+            case SaveProjectProgress(progress=progress, message=message):
+                self._emit(
+                    replace(
+                        self._state,
+                        progress=progress,
+                        status_message=message,
+                        export_status=JobStatus.RUNNING,
+                    )
+                )
+
+            case SaveProjectFinished(output_path=output_path):
+                self._emit(
+                    replace(
+                        self._state,
+                        export_status=JobStatus.IDLE,
+                        last_project_path=output_path,
+                        progress=1.0,
+                        status_message=f"Saved project to {output_path}.",
+                        error_message=None,
+                    )
+                )
+
+            case SaveProjectFailed(message=message):
+                self._emit(
+                    replace(
+                        self._state,
+                        export_status=JobStatus.IDLE,
+                        error_message=message,
+                        status_message="Save failed.",
+                    )
+                )
+
+            case OpenProjectProgress(progress=progress, message=message):
+                self._emit(
+                    replace(
+                        self._state,
+                        progress=progress,
+                        status_message=message,
+                        import_status=JobStatus.RUNNING,
+                    )
+                )
+
+            case OpenProjectFinished(result=result, generation=generation):
+                if generation != self._state._proxy_generation:
+                    return
+                if not isinstance(result, ProjectOpenResult):
+                    self._clear_open_staging()
+                    self._emit(
+                        replace(
+                            self._state,
+                            import_status=JobStatus.IDLE,
+                            error_message="Open returned an unexpected result.",
+                            status_message="Open failed.",
+                        )
+                    )
+                    return
+                self._adopt_opened_project(result)
+
+            case OpenProjectFailed(message=message, generation=generation):
+                if generation != self._state._proxy_generation:
+                    return
+                self._clear_open_staging()
+                self._emit(
+                    replace(
+                        self._state,
+                        import_status=JobStatus.IDLE,
+                        error_message=message,
+                        status_message="Open failed.",
+                    )
+                )
+
             case _:
                 logger.debug("Unhandled action: %s", type(action).__name__)
 
@@ -424,11 +633,16 @@ class ScreenViewModel(QObject):
         """Debounce live preview while sliders / layout controls are moving."""
         if not self._state.images or not self._state.proxy_ready:
             return
-        if self._state.import_status == JobStatus.RUNNING:
-            return
-        if self._state.export_status == JobStatus.RUNNING:
+        if self._io_busy():
             return
         self._preview_debounce.start()
+
+    def _io_busy(self) -> bool:
+        """True when import, open, export, or save is already running."""
+        return (
+            self._state.import_status == JobStatus.RUNNING
+            or self._state.export_status == JobStatus.RUNNING
+        )
 
     def _start_import(self, paths: list[Path], video_frame_step: int = 1) -> None:
         gen = self._state._proxy_generation + 1
@@ -493,6 +707,93 @@ class ScreenViewModel(QObject):
         except OSError as exc:
             logger.warning("Failed to clean up frame thumbnails: %s", exc)
         self._thumb_tmpdir = None
+
+    def _clear_project_tmpdir(self) -> None:
+        """Delete extracted project resources (opened ``.vlt`` frames)."""
+        if self._project_tmpdir is None:
+            return
+        try:
+            self._project_tmpdir.cleanup()
+        except OSError as exc:
+            logger.warning("Failed to clean up opened project files: %s", exc)
+        self._project_tmpdir = None
+
+    def _clear_open_staging(self) -> None:
+        """Discard a failed or superseded open extract directory."""
+        if self._open_staging is None:
+            return
+        try:
+            self._open_staging.cleanup()
+        except OSError as exc:
+            logger.warning("Failed to clean up project staging files: %s", exc)
+        self._open_staging = None
+
+    def _start_save(self, output_path: Path) -> None:
+        if not self._state.images:
+            self.dispatch(SaveProjectFailed("No frames to save."))
+            return
+        self._emit(
+            replace(
+                self._state,
+                export_status=JobStatus.RUNNING,
+                progress=0.0,
+                status_message="Saving project…",
+                error_message=None,
+            )
+        )
+        worker = ProjectSaveWorker(
+            blueprint_from_state(self._state),
+            output_path,
+            self._save_signals,
+        )
+        self._pool.start(worker)
+
+    def _start_open(self, archive_path: Path) -> None:
+        gen = self._state._proxy_generation + 1
+        self._clear_open_staging()
+        self._open_staging = tempfile.TemporaryDirectory(
+            prefix="vultureklips_project_"
+        )
+        self._emit(
+            replace(
+                self._state,
+                import_status=JobStatus.RUNNING,
+                progress=0.0,
+                status_message="Opening project…",
+                error_message=None,
+                _proxy_generation=gen,
+            )
+        )
+        worker = ProjectOpenWorker(
+            archive_path,
+            Path(self._open_staging.name),
+            gen,
+            self._open_signals,
+        )
+        self._pool.start(worker)
+
+    def _adopt_opened_project(self, result: ProjectOpenResult) -> None:
+        """Swap caches and restore persistable settings after a successful open."""
+        staging = self._open_staging
+        self._open_staging = None
+        self._clear_video_tmpdir()
+        self._clear_thumb_tmpdir()
+        self._clear_project_tmpdir()
+        self._project_tmpdir = staging
+        self._proxy_cache = result.proxy_cache
+        self._full_shapes = result.full_shapes
+        native_max = native_max_from_shapes(self._full_shapes)
+        restored = state_from_document(
+            result.document,
+            result.images,
+            native_max=native_max,
+            project_path=result.project_path,
+            proxy_generation=self._state._proxy_generation,
+            preview_generation=self._state._preview_generation + 1,
+        )
+        selected = restored.selected_index
+        self._emit(self._with_selected_frame(restored, selected))
+        self._schedule_preview()
 
     def _run_preview(self) -> None:
         if not self._state.proxy_ready:

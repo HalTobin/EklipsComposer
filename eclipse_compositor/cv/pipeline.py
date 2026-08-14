@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 
+from eclipse_compositor.cv.colorimetry import apply_colorimetry
 from eclipse_compositor.cv.compositing import (
     create_canvas,
     paste_lighten,
@@ -24,6 +25,7 @@ from eclipse_compositor.cv.layout import (
     normalize_positions,
 )
 from eclipse_compositor.cv.loading import load_image_bgr
+from eclipse_compositor.cv.masking import apply_circular_mask, circular_fade_alpha
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +54,16 @@ class ComposeParams:
     radius_margin: float = 2.6
     grid_columns: int = 3
     grid_rows: int = 2
+    # Color grade applied once to the finished composite (1.0 / 0 = identity).
+    contrast: float = 1.0
+    saturation: float = 1.0
+    brightness: float = 0.0
+    gamma: float = 1.0
+    temperature: float = 0.0
+    # Per-frame circular fade; disabled leaves the hard square crop.
+    mask_enabled: bool = False
+    mask_size: float = 0.90
+    mask_feather: float = 0.20
 
 
 def process_frame(
@@ -108,9 +120,13 @@ def compose_frames(
 ) -> np.ndarray:
     """Layout and lighten-blend processed crops onto a single canvas.
 
+    Colorimetry is applied per crop (so the black canvas stays black), then
+    an optional circular fade-to-black mask softens square crop edges before
+    the lighten blend.
+
     Args:
         frames: Detected and cropped frames in display order.
-        params: Layout / padding parameters.
+        params: Layout, grade, and mask parameters.
         frame_size: Square side length of each crop (defaults to ``params.crop_size``).
 
     Returns:
@@ -135,9 +151,24 @@ def compose_frames(
         raw_positions, size, padding=params.padding
     )
     canvas = create_canvas(width, height)
+    alpha = (
+        circular_fade_alpha(size, params.mask_size, params.mask_feather)
+        if params.mask_enabled
+        else None
+    )
 
     for frame, pos in zip(frames, positions, strict=True):
-        paste_lighten(canvas, frame.crop, pos)
+        patch = apply_colorimetry(
+            frame.crop,
+            contrast=params.contrast,
+            saturation=params.saturation,
+            brightness=params.brightness,
+            gamma=params.gamma,
+            temperature=params.temperature,
+        )
+        if alpha is not None:
+            patch = apply_circular_mask(patch, alpha)
+        paste_lighten(canvas, patch, pos)
     return canvas
 
 
@@ -198,18 +229,7 @@ def compose_sequence(
         frames.append(ProcessedFrame(path=path, crop=crop, detection=detection))
 
     # Layout must use the effective crop size, not the pre-expansion slider value.
-    layout_params = ComposeParams(
-        crop_size=crop_size,
-        spacing=params.spacing,
-        layout=params.layout,
-        arc_angle=params.arc_angle,
-        direction=params.direction,
-        threshold=params.threshold,
-        padding=params.padding,
-        radius_margin=params.radius_margin,
-        grid_columns=params.grid_columns,
-        grid_rows=params.grid_rows,
-    )
+    layout_params = replace(params, crop_size=crop_size)
     composite = compose_frames(frames, layout_params, frame_size=crop_size)
     return composite, used, skipped
 

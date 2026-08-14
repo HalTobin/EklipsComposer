@@ -94,6 +94,56 @@ class UpdateZoom(ScreenAction):
 
 
 @dataclass(frozen=True)
+class SelectSidebarTab(ScreenAction):
+    value: object  # SidebarTab
+
+
+@dataclass(frozen=True)
+class UpdateContrast(ScreenAction):
+    value: float
+
+
+@dataclass(frozen=True)
+class UpdateSaturation(ScreenAction):
+    value: float
+
+
+@dataclass(frozen=True)
+class UpdateBrightness(ScreenAction):
+    value: float
+
+
+@dataclass(frozen=True)
+class UpdateGamma(ScreenAction):
+    value: float
+
+
+@dataclass(frozen=True)
+class UpdateTemperature(ScreenAction):
+    value: float
+
+
+@dataclass(frozen=True)
+class ResetColorimetry(ScreenAction):
+    """Restore contrast / saturation / brightness / gamma / temperature."""
+
+
+@dataclass(frozen=True)
+class UpdateMaskEnabled(ScreenAction):
+    value: bool
+
+
+@dataclass(frozen=True)
+class UpdateMaskSize(ScreenAction):
+    value: float
+
+
+@dataclass(frozen=True)
+class UpdateMaskFeather(ScreenAction):
+    value: float
+
+
+@dataclass(frozen=True)
 class RequestPreview(ScreenAction):
     """Ask the ViewModel to (re)render the proxy composite."""
 
@@ -103,6 +153,20 @@ class ExportComposite(ScreenAction):
     """Kick off a full-resolution export."""
 
     output_path: Path
+
+
+@dataclass(frozen=True)
+class SaveProject(ScreenAction):
+    """Pack the current composition into a ``.vlt`` archive."""
+
+    output_path: Path
+
+
+@dataclass(frozen=True)
+class OpenProject(ScreenAction):
+    """Replace the current composition with a saved ``.vlt`` project."""
+
+    path: Path
 
 
 # --- Worker → ViewModel result actions ---
@@ -160,3 +224,39 @@ class ExportFinished(ScreenAction):
 @dataclass(frozen=True)
 class ExportFailed(ScreenAction):
     message: str
+
+
+@dataclass(frozen=True)
+class SaveProjectProgress(ScreenAction):
+    progress: float
+    message: str
+
+
+@dataclass(frozen=True)
+class SaveProjectFinished(ScreenAction):
+    output_path: Path
+
+
+@dataclass(frozen=True)
+class SaveProjectFailed(ScreenAction):
+    message: str
+
+
+@dataclass(frozen=True)
+class OpenProjectProgress(ScreenAction):
+    progress: float
+    message: str
+
+
+@dataclass(frozen=True)
+class OpenProjectFinished(ScreenAction):
+    """Worker finished extracting and caching a project."""
+
+    result: object  # ProjectOpenResult
+    generation: int
+
+
+@dataclass(frozen=True)
+class OpenProjectFailed(ScreenAction):
+    message: str
+    generation: int

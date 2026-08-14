@@ -1,4 +1,4 @@
-"""Background QRunnable workers for import, preview, and export.
+"""Background QRunnable workers for import, preview, export, and projects.
 
 Heavy OpenCV work never runs on the GUI thread.
 """
@@ -7,16 +7,17 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
-from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 from eclipse_compositor.cv.loading import load_image_bgr, make_proxy, write_thumbnail
 from eclipse_compositor.cv.pipeline import ComposeParams, compose_sequence, export_composite
 from eclipse_compositor.cv.video import is_supported_video, iter_extracted_frames
-from eclipse_compositor.ui.state import ImageItem
+from eclipse_compositor.project import ProjectBlueprint, ProjectDocument, default_project_service
+from eclipse_compositor.ui.state import ImageItem, ScreenState
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,57 @@ class WorkerSignals(QObject):
     import_finished = Signal(object, int)  # list[ImageItem], generation
     preview_finished = Signal(object, int, object, object)  # bgr, gen, skipped, flags
     export_finished = Signal(object, object)  # Path, skipped
+    project_saved = Signal(object)  # Path
+    project_opened = Signal(object, int)  # ProjectOpenResult, generation
     failed = Signal(str)
+
+
+def cache_imported_frame(
+    path: Path,
+    full: np.ndarray,
+    proxy_cache: dict[Path, np.ndarray],
+    full_shapes: dict[Path, tuple[int, int]],
+    thumb_dir: Path | None,
+    *,
+    enabled: bool = True,
+    max_edge: int = 1080,
+) -> ImageItem:
+    """Store proxy + native shape for one still and return its gallery item."""
+    h, w = full.shape[:2]
+    full_shapes[path] = (h, w)
+    proxy = make_proxy(full, max_edge=max_edge)
+    proxy_cache[path] = proxy
+    thumb_path: str | None = None
+    if thumb_dir is not None:
+        dest = _thumb_dest(thumb_dir, path)
+        try:
+            write_thumbnail(proxy, dest)
+            thumb_path = str(dest)
+        except OSError as exc:
+            logger.warning("Thumbnail failed for %s: %s", path, exc)
+    return ImageItem(path=path, enabled=enabled, thumbnail_path=thumb_path)
+
+
+def _thumb_dest(thumb_dir: Path, path: Path) -> Path:
+    """Stable JPEG path under *thumb_dir* for *path*."""
+    try:
+        key = str(path.resolve())
+    except OSError:
+        key = str(path)
+    digest = hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:16]
+    return thumb_dir / f"{digest}.jpg"
+
+
+@dataclass
+class ProjectOpenResult:
+    """Staging payload from ``ProjectOpenWorker`` (swapped in on the main thread)."""
+
+    document: ProjectDocument
+    images: tuple[ImageItem, ...]
+    proxy_cache: dict[Path, np.ndarray]
+    full_shapes: dict[Path, tuple[int, int]]
+    extract_dir: Path
+    project_path: Path
 
 
 class ImportWorker(QRunnable):
@@ -66,30 +117,15 @@ class ImportWorker(QRunnable):
         self, path: Path, full: np.ndarray, *, enabled: bool = True
     ) -> ImageItem:
         """Store proxy + native shape for one still and return its gallery item."""
-        h, w = full.shape[:2]
-        self.full_shapes[path] = (h, w)
-        proxy = make_proxy(full, max_edge=self.max_edge)
-        self.proxy_cache[path] = proxy
-        thumb_path: str | None = None
-        if self.thumb_dir is not None:
-            dest = self._thumb_dest(path)
-            try:
-                write_thumbnail(proxy, dest)
-                thumb_path = str(dest)
-            except OSError as exc:
-                logger.warning("Thumbnail failed for %s: %s", path, exc)
-        return ImageItem(path=path, enabled=enabled, thumbnail_path=thumb_path)
-
-    def _thumb_dest(self, path: Path) -> Path:
-        """Stable JPEG path under *thumb_dir* for *path*."""
-        if self.thumb_dir is None:
-            raise RuntimeError("Thumbnail output directory is not set.")
-        try:
-            key = str(path.resolve())
-        except OSError:
-            key = str(path)
-        digest = hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:16]
-        return self.thumb_dir / f"{digest}.jpg"
+        return cache_imported_frame(
+            path,
+            full,
+            self.proxy_cache,
+            self.full_shapes,
+            self.thumb_dir,
+            enabled=enabled,
+            max_edge=self.max_edge,
+        )
 
     def _unique_frame_dir(self, video: Path) -> Path:
         """Return a fresh subdirectory under *frame_dir* for *video* stills."""
@@ -203,17 +239,10 @@ class PreviewWorker(QRunnable):
             scale = min(proxy_w / max(full_w, 1), proxy_h / max(full_h, 1))
         else:
             scale = max(proxy.shape[:2]) / 4000.0
-        return ComposeParams(
+        return replace(
+            self.params,
             crop_size=max(32, int(round(self.params.crop_size * scale))),
-            spacing=self.params.spacing,
-            layout=self.params.layout,
-            arc_angle=self.params.arc_angle,
-            direction=self.params.direction,
-            threshold=self.params.threshold,
             padding=max(8, int(round(self.params.padding * scale))),
-            radius_margin=self.params.radius_margin,
-            grid_columns=self.params.grid_columns,
-            grid_rows=self.params.grid_rows,
         )
 
 
@@ -248,25 +277,119 @@ class ExportWorker(QRunnable):
             self.signals.failed.emit(str(exc))
 
 
-def params_from_state(
-    crop_size: int,
-    spacing: float,
-    layout: LayoutType,
-    arc_angle: float,
-    direction: LayoutDirection,
-    threshold: int,
-    grid_columns: int = 3,
-    grid_rows: int = 2,
-) -> ComposeParams:
-    """Build ComposeParams from UI scalar fields."""
+class ProjectSaveWorker(QRunnable):
+    """Pack the current composition into a ``.vlt`` archive."""
+
+    def __init__(
+        self,
+        blueprint: ProjectBlueprint,
+        output_path: Path,
+        signals: WorkerSignals,
+    ) -> None:
+        super().__init__()
+        self.blueprint = blueprint
+        self.output_path = output_path
+        self.signals = signals
+        self.setAutoDelete(True)
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            service = default_project_service()
+            saved = service.save(
+                self.blueprint,
+                self.output_path,
+                progress=lambda p, m: self.signals.progress.emit(p, m),
+            )
+            self.signals.project_saved.emit(saved)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Save project failed")
+            self.signals.failed.emit(str(exc))
+
+
+class ProjectOpenWorker(QRunnable):
+    """Extract a ``.vlt`` archive and build proxy cache entries."""
+
+    def __init__(
+        self,
+        archive_path: Path,
+        extract_dir: Path,
+        generation: int,
+        signals: WorkerSignals,
+        max_edge: int = 1080,
+    ) -> None:
+        super().__init__()
+        self.archive_path = archive_path
+        self.extract_dir = extract_dir
+        self.generation = generation
+        self.signals = signals
+        self.max_edge = max_edge
+        self.setAutoDelete(True)
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.signals.progress.emit(0.02, "Opening project…")
+            service = default_project_service()
+            loaded = service.open(self.archive_path, self.extract_dir)
+            proxy_cache: dict[Path, np.ndarray] = {}
+            full_shapes: dict[Path, tuple[int, int]] = {}
+            thumb_dir = self.extract_dir / "thumbs"
+            thumb_dir.mkdir(parents=True, exist_ok=True)
+            items: list[ImageItem] = []
+            total = max(1, len(loaded.frame_paths))
+            for i, (record, path) in enumerate(
+                zip(loaded.document.frames, loaded.frame_paths, strict=True)
+            ):
+                self.signals.progress.emit(
+                    0.1 + 0.85 * ((i + 1) / total),
+                    f"Loading {path.name}…",
+                )
+                full = load_image_bgr(path)
+                items.append(
+                    cache_imported_frame(
+                        path,
+                        full,
+                        proxy_cache,
+                        full_shapes,
+                        thumb_dir,
+                        enabled=record.enabled,
+                        max_edge=self.max_edge,
+                    )
+                )
+            result = ProjectOpenResult(
+                document=loaded.document,
+                images=tuple(items),
+                proxy_cache=proxy_cache,
+                full_shapes=full_shapes,
+                extract_dir=self.extract_dir,
+                project_path=self.archive_path,
+            )
+            self.signals.progress.emit(1.0, "Project loaded.")
+            self.signals.project_opened.emit(result, self.generation)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Open project failed")
+            self.signals.failed.emit(str(exc))
+
+
+def params_from_state(state: ScreenState) -> ComposeParams:
+    """Build ComposeParams from the current screen state."""
     return ComposeParams(
-        crop_size=crop_size,
-        spacing=spacing,
-        layout=layout,
-        arc_angle=arc_angle,
-        direction=direction,
-        threshold=threshold,
+        crop_size=state.crop_size,
+        spacing=state.spacing,
+        layout=state.layout,
+        arc_angle=state.arc_angle,
+        direction=state.direction,
+        threshold=state.threshold,
         padding=40,
-        grid_columns=grid_columns,
-        grid_rows=grid_rows,
+        grid_columns=state.grid_columns,
+        grid_rows=state.grid_rows,
+        contrast=state.contrast,
+        saturation=state.saturation,
+        brightness=state.brightness,
+        gamma=state.gamma,
+        temperature=state.temperature,
+        mask_enabled=state.mask_enabled,
+        mask_size=state.mask_size,
+        mask_feather=state.mask_feather,
     )
