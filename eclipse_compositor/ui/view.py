@@ -378,6 +378,10 @@ class ScreenView(QMainWindow):
             out = out.with_suffix(PROJECT_SUFFIX)
         self.view_model.dispatch(SaveProject(out))
 
+    def open_project_from_os(self, path: Path | str) -> None:
+        """Open a ``.vlt`` launched from Finder, argv, or a file-open event."""
+        self._open_project_path(Path(path))
+
     def _open_project_path(self, path: Path) -> None:
         """Confirm replace if needed, then dispatch OpenProject."""
         if self._import_busy():

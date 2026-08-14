@@ -5,15 +5,59 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QEvent, Signal
+from PySide6.QtGui import QFileOpenEvent, QIcon
 from PySide6.QtWidgets import QApplication
 
+from eclipse_compositor.project import is_project_file
 from eclipse_compositor.resources import app_icon_path
 from eclipse_compositor.ui.view import ScreenView
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
 
 _APP_NAME = "VulturEklips"
+
+
+class VulturEklipsApplication(QApplication):
+    """QApplication that turns macOS Finder / argv file opens into a signal.
+
+    Double-clicking a ``.vlt`` sends a ``QFileOpenEvent`` (often *before* the
+    main window exists). Paths are buffered until ``set_window_ready``.
+    Keep PyInstaller ``argv_emulation`` off so Qt still receives these events.
+    """
+
+    file_open_requested = Signal(str)
+
+    def __init__(self, argv: list[str]) -> None:
+        super().__init__(argv)
+        self._window_ready = False
+        self._pending_paths: list[str] = []
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.FileOpen and isinstance(event, QFileOpenEvent):
+            self.offer_path(event.file())
+            return True
+        return super().event(event)
+
+    def offer_path(self, path: str) -> None:
+        """Queue or emit *path* if it is a VulturEklips project file."""
+        if not path or not is_project_file(path):
+            return
+        if not self._window_ready:
+            self._pending_paths.append(path)
+            return
+        self.file_open_requested.emit(path)
+
+    def set_window_ready(self) -> None:
+        """Flush buffered opens now that the main window can handle them."""
+        self._window_ready = True
+        pending = self._pending_paths
+        self._pending_paths = []
+        if not pending:
+            return
+        # One project at launch; later FileOpen events emit immediately.
+        self.file_open_requested.emit(pending[-1])
 
 
 def _macos_set_app_menu_name(name: str) -> None:
@@ -82,6 +126,18 @@ def _macos_set_app_menu_name(name: str) -> None:
         )
 
 
+def _project_path_from_argv(argv: list[str]) -> Path | None:
+    """Return the last ``.vlt`` path passed on the command line, if any."""
+    found: Path | None = None
+    for arg in argv[1:]:
+        if arg.startswith("-"):
+            continue
+        path = Path(arg)
+        if is_project_file(path) and path.is_file():
+            found = path
+    return found
+
+
 def main() -> int:
     """Launch the PySide6 MVI application."""
     logging.basicConfig(
@@ -89,7 +145,7 @@ def main() -> int:
         format="%(levelname)s %(name)s: %(message)s",
     )
     _macos_set_app_menu_name(_APP_NAME)
-    app = QApplication(sys.argv)
+    app = VulturEklipsApplication(sys.argv)
     app.setApplicationName(_APP_NAME)
     app.setApplicationDisplayName(_APP_NAME)
     app.setOrganizationName(_APP_NAME)
@@ -101,7 +157,13 @@ def main() -> int:
 
     view_model = ScreenViewModel()
     window = ScreenView(view_model)
+    app.file_open_requested.connect(window.open_project_from_os)
     window.show()
+
+    argv_project = _project_path_from_argv(sys.argv)
+    if argv_project is not None:
+        app.offer_path(str(argv_project))
+    app.set_window_ready()
     return app.exec()
 
 

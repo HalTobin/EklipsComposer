@@ -16,11 +16,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from eclipse_compositor.cv.loading import load_image_bgr
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
 from eclipse_compositor.ui.state import ImageItem, ScreenState
 from eclipse_compositor.ui.widgets.frame_preview import FramePreview
+from eclipse_compositor.ui.widgets.viewport import bgr_to_qimage
 
 _THUMB_SIZE = 48
+
+
+def _pixmap_from_thumb(path: str) -> QPixmap:
+    """Decode a gallery thumbnail via Pillow → QImage (no Qt image plugins)."""
+    try:
+        bgr = load_image_bgr(path)
+    except (OSError, FileNotFoundError, ValueError):
+        return QPixmap()
+    qimg = bgr_to_qimage(bgr)
+    if qimg.isNull():
+        return QPixmap()
+    return QPixmap.fromImage(qimg)
 
 
 class FrameListWidget(QListWidget):
@@ -153,18 +167,20 @@ class GalleryBar(QWidget):
         return label
 
     def _icon_for(self, item: ImageItem) -> QIcon:
-        """Return a cached list icon for *item*, or empty if none."""
+        """Return a cached list icon for *item*, or empty if none.
+
+        Thumbnails are JPEG files decoded with Pillow. ``QPixmap(path)`` is
+        not used: the macOS bundle strips Qt's ``libqjpeg`` plugin, so Qt
+        cannot read those files even when they exist on disk.
+        """
         path = item.thumbnail_path
         if not path:
             return QIcon()
         cached = self._icons.get(path)
         if cached is not None:
             return cached
-        pix = QPixmap(path)
-        if pix.isNull():
-            icon = QIcon()
-        else:
-            icon = QIcon(pix)
+        pix = _pixmap_from_thumb(path)
+        icon = QIcon() if pix.isNull() else QIcon(pix)
         self._icons[path] = icon
         return icon
 

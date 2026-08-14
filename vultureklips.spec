@@ -182,6 +182,8 @@ _DROP_SUBSTR = (
     "libqicns",
     "libqsvgicon",
     "libqtuiotouch",
+    # Qt image plugins: gallery thumbs and source stills are decoded with
+    # Pillow, not QPixmap(path). Keep these dropped to slim the .app.
     "libqjpeg",
     "libqtiff",
     "libqwebp",
@@ -233,7 +235,7 @@ exe = EXE(
     upx=True,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=False,
+    argv_emulation=False,  # Qt handles Finder opens via QFileOpenEvent
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
@@ -258,7 +260,29 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "VulturEklips",
         "CFBundleName": "VulturEklips",
-        "CFBundleShortVersionString": "0.3.0",
+        "CFBundleShortVersionString": "0.3.1",
         "NSHighResolutionCapable": True,
+        "CFBundleDocumentTypes": [
+            {
+                "CFBundleTypeName": "VulturEklips Project",
+                "CFBundleTypeRole": "Editor",
+                "CFBundleTypeExtensions": ["vlt"],
+                "CFBundleTypeIconFile": "app_icon_darwin.icns",
+                "LSHandlerRank": "Owner",
+                "LSItemContentTypes": ["com.vultureklips.project"],
+            }
+        ],
+        "UTExportedTypeDeclarations": [
+            {
+                "UTTypeIdentifier": "com.vultureklips.project",
+                "UTTypeDescription": "VulturEklips Project",
+                "UTTypeConformsTo": ["public.data"],
+                "UTTypeIconFile": "app_icon_darwin.icns",
+                "UTTypeTagSpecification": {
+                    "public.filename-extension": ["vlt"],
+                    "public.mime-type": ["application/x-vultureklips-project"],
+                },
+            }
+        ],
     },
 )
