@@ -4,8 +4,18 @@ from __future__ import annotations
 
 import numpy as np
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QImage, QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtGui import (
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QImage,
+    QPixmap,
+    QResizeEvent,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsView
+
+from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
 
 
 def bgr_to_qimage(image: np.ndarray) -> QImage:
@@ -26,6 +36,7 @@ class PreviewViewport(QGraphicsView):
     """Center viewport that displays the composite with mouse-wheel zoom."""
 
     zoom_changed = Signal(float)
+    files_dropped = Signal(object)  # tuple[Path, ...]
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -39,6 +50,31 @@ class PreviewViewport(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(Qt.GlobalColor.black)
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event: QDragEnterEvent) -> None:
+        if mime_has_importable_paths(event.mimeData()):
+            event.setDropAction(Qt.DropAction.CopyAction)
+            event.accept()
+            return
+        super().dragEnterEvent(event)
+
+    def dragMoveEvent(self, event: QDragMoveEvent) -> None:
+        if mime_has_importable_paths(event.mimeData()):
+            event.setDropAction(Qt.DropAction.CopyAction)
+            event.accept()
+            return
+        super().dragMoveEvent(event)
+
+    def dropEvent(self, event: QDropEvent) -> None:
+        if mime_has_importable_paths(event.mimeData()):
+            paths = paths_from_mime(event.mimeData())
+            event.setDropAction(Qt.DropAction.CopyAction)
+            event.accept()
+            if paths:
+                self.files_dropped.emit(tuple(paths))
+            return
+        super().dropEvent(event)
 
     def set_preview(self, image: np.ndarray | None, *, fit: bool = False) -> None:
         """Update the displayed composite (or clear if None).

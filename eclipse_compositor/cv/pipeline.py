@@ -17,6 +17,7 @@ from eclipse_compositor.cv.compositing import (
 from eclipse_compositor.cv.cropping import crop_around_center
 from eclipse_compositor.cv.detection import DiscDetection, find_disc_center
 from eclipse_compositor.cv.layout import (
+    LayoutDirection,
     LayoutType,
     canvas_size_from_positions,
     generate_positions,
@@ -43,7 +44,8 @@ class ComposeParams:
     crop_size: int = 800
     spacing: float = -0.15
     layout: LayoutType = LayoutType.ARC
-    curvature: float = 0.35
+    arc_angle: float = 120.0
+    direction: LayoutDirection = LayoutDirection.HORIZONTAL
     threshold: int = 180
     padding: int = 40
     # Expand crop so corona / diamond ring is not clipped (× enclosing diameter).
@@ -123,7 +125,8 @@ def compose_frames(
         count=len(frames),
         frame_size=size,
         spacing=params.spacing,
-        curvature=params.curvature,
+        arc_angle=params.arc_angle,
+        direction=params.direction,
         grid_columns=params.grid_columns,
         grid_rows=params.grid_rows,
     )
@@ -199,7 +202,8 @@ def compose_sequence(
         crop_size=crop_size,
         spacing=params.spacing,
         layout=params.layout,
-        curvature=params.curvature,
+        arc_angle=params.arc_angle,
+        direction=params.direction,
         threshold=params.threshold,
         padding=params.padding,
         radius_margin=params.radius_margin,

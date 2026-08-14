@@ -6,6 +6,7 @@ __pycache__/
 dist/
 build/
 output/
+third_party/ffmpeg/
 .DS_Store
 *.iconset
 *.tif

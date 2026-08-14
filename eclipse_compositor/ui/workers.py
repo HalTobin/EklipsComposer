@@ -5,15 +5,17 @@ Heavy OpenCV work never runs on the GUI thread.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
-from eclipse_compositor.cv.layout import LayoutType
-from eclipse_compositor.cv.loading import load_image_bgr, make_proxy
+from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
+from eclipse_compositor.cv.loading import load_image_bgr, make_proxy, write_thumbnail
 from eclipse_compositor.cv.pipeline import ComposeParams, compose_sequence, export_composite
+from eclipse_compositor.cv.video import is_supported_video, iter_extracted_frames
 from eclipse_compositor.ui.state import ImageItem
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,9 @@ class ImportWorker(QRunnable):
         generation: int,
         signals: WorkerSignals,
         max_edge: int = 1080,
+        frame_dir: Path | None = None,
+        thumb_dir: Path | None = None,
+        video_frame_step: int = 1,
     ) -> None:
         super().__init__()
         self.paths = paths
@@ -52,7 +57,52 @@ class ImportWorker(QRunnable):
         self.generation = generation
         self.signals = signals
         self.max_edge = max_edge
+        self.frame_dir = frame_dir
+        self.thumb_dir = thumb_dir
+        self.video_frame_step = max(1, int(video_frame_step))
         self.setAutoDelete(True)
+
+    def _cache_frame(
+        self, path: Path, full: np.ndarray, *, enabled: bool = True
+    ) -> ImageItem:
+        """Store proxy + native shape for one still and return its gallery item."""
+        h, w = full.shape[:2]
+        self.full_shapes[path] = (h, w)
+        proxy = make_proxy(full, max_edge=self.max_edge)
+        self.proxy_cache[path] = proxy
+        thumb_path: str | None = None
+        if self.thumb_dir is not None:
+            dest = self._thumb_dest(path)
+            try:
+                write_thumbnail(proxy, dest)
+                thumb_path = str(dest)
+            except OSError as exc:
+                logger.warning("Thumbnail failed for %s: %s", path, exc)
+        return ImageItem(path=path, enabled=enabled, thumbnail_path=thumb_path)
+
+    def _thumb_dest(self, path: Path) -> Path:
+        """Stable JPEG path under *thumb_dir* for *path*."""
+        if self.thumb_dir is None:
+            raise RuntimeError("Thumbnail output directory is not set.")
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        digest = hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:16]
+        return self.thumb_dir / f"{digest}.jpg"
+
+    def _unique_frame_dir(self, video: Path) -> Path:
+        """Return a fresh subdirectory under *frame_dir* for *video* stills."""
+        if self.frame_dir is None:
+            raise RuntimeError("Video import requires a frame output directory.")
+        stem = video.stem or "video"
+        dest = self.frame_dir / stem
+        suffix = 2
+        while dest.exists():
+            dest = self.frame_dir / f"{stem}_{suffix}"
+            suffix += 1
+        dest.mkdir(parents=True, exist_ok=True)
+        return dest
 
     @Slot()
     def run(self) -> None:
@@ -62,13 +112,36 @@ class ImportWorker(QRunnable):
             items: list[ImageItem] = []
             total = max(1, len(ordered))
             for i, path in enumerate(ordered):
-                self.signals.progress.emit((i + 1) / total, f"Loading {path.name}…")
                 try:
+                    if is_supported_video(path):
+                        dest = self._unique_frame_dir(path)
+                        extracted = 0
+
+                        def _on_frame(
+                            count: int,
+                            name: str = path.name,
+                            index: int = i,
+                        ) -> None:
+                            self.signals.progress.emit(
+                                (index + 0.5) / total,
+                                f"Extracting {name} ({count} frames)…",
+                            )
+
+                        for still, bgr in iter_extracted_frames(
+                            path, dest, progress=_on_frame
+                        ):
+                            enabled = extracted % self.video_frame_step == 0
+                            items.append(
+                                self._cache_frame(still, bgr, enabled=enabled)
+                            )
+                            extracted += 1
+                        if extracted == 0:
+                            logger.warning("No frames extracted from %s", path)
+                        continue
+
+                    self.signals.progress.emit((i + 1) / total, f"Loading {path.name}…")
                     full = load_image_bgr(path)
-                    h, w = full.shape[:2]
-                    self.full_shapes[path] = (h, w)
-                    self.proxy_cache[path] = make_proxy(full, max_edge=self.max_edge)
-                    items.append(ImageItem(path=path, enabled=True))
+                    items.append(self._cache_frame(path, full))
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Failed to import %s: %s", path, exc)
             self.signals.import_finished.emit(items, self.generation)
@@ -134,7 +207,8 @@ class PreviewWorker(QRunnable):
             crop_size=max(32, int(round(self.params.crop_size * scale))),
             spacing=self.params.spacing,
             layout=self.params.layout,
-            curvature=self.params.curvature,
+            arc_angle=self.params.arc_angle,
+            direction=self.params.direction,
             threshold=self.params.threshold,
             padding=max(8, int(round(self.params.padding * scale))),
             radius_margin=self.params.radius_margin,
@@ -178,7 +252,8 @@ def params_from_state(
     crop_size: int,
     spacing: float,
     layout: LayoutType,
-    curvature: float,
+    arc_angle: float,
+    direction: LayoutDirection,
     threshold: int,
     grid_columns: int = 3,
     grid_rows: int = 2,
@@ -188,7 +263,8 @@ def params_from_state(
         crop_size=crop_size,
         spacing=spacing,
         layout=layout,
-        curvature=curvature,
+        arc_angle=arc_angle,
+        direction=direction,
         threshold=threshold,
         padding=40,
         grid_columns=grid_columns,

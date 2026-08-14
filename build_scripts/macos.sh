@@ -17,9 +17,14 @@ else
 fi
 
 echo "Installing slim build dependencies…"
-# Drop the full Qt Addons / GUI OpenCV wheels if a previous env pulled them in.
-"$PYTHON" -m pip uninstall -y PySide6 PySide6-Addons opencv-python opencv-python-headless || true
+# Drop the full Qt Addons / GUI OpenCV / fat ffmpeg wheels if a previous
+# env pulled them in (imageio-ffmpeg ships a ~47 MB encoder-heavy binary).
+"$PYTHON" -m pip uninstall -y PySide6 PySide6-Addons opencv-python opencv-python-headless imageio-ffmpeg || true
 "$PYTHON" -m pip install -r "$ROOT/requirements-build.txt"
+
+echo "Building decode-only ffmpeg…"
+chmod +x "$ROOT/build_scripts/build_ffmpeg.sh"
+"$ROOT/build_scripts/build_ffmpeg.sh"
 
 echo "Building macOS icon…"
 "$PYTHON" "$ROOT/build_scripts/build_icons.py"

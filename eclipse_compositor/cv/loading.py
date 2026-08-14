@@ -9,13 +9,34 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from eclipse_compositor.cv.ops import load_bgr, resize_hw
+from eclipse_compositor.cv.ops import load_bgr, resize_hw, save_bgr
+from eclipse_compositor.cv.video import is_supported_video
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"}
 )
+
+
+def is_supported_image(path: Path | str) -> bool:
+    """Return True if *path* has a supported still-image suffix."""
+    return Path(path).suffix.lower() in SUPPORTED_EXTENSIONS
+
+
+def is_importable(path: Path | str) -> bool:
+    """Return True if *path* is a supported still image or video file."""
+    return is_supported_image(path) or is_supported_video(path)
+
+
+def image_dialog_globs() -> str:
+    """Qt file-dialog glob list for supported still-image suffixes."""
+    return " ".join(f"*{ext}" for ext in sorted(SUPPORTED_EXTENSIONS))
+
+
+def _is_hidden_part(path: Path) -> bool:
+    """True if any path component is hidden (``.name`` / ``__MACOSX``)."""
+    return any(part.startswith(".") or part == "__MACOSX" for part in path.parts)
 
 
 def list_image_paths(directory: Path | str) -> list[Path]:
@@ -33,8 +54,57 @@ def list_image_paths(directory: Path | str) -> list[Path]:
     return [
         p
         for p in root.iterdir()
-        if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS
+        if p.is_file() and is_supported_image(p) and not _is_hidden_part(p)
     ]
+
+
+def collect_import_paths(candidates: list[Path | str]) -> list[Path]:
+    """Expand dropped files/folders into a de-duplicated import list.
+
+    Top-level files keep the given order. Each directory is expanded
+    recursively; still images are appended in chronological (EXIF) order
+    and videos follow in filename order.
+
+    Args:
+        candidates: Files and/or directories from a file dialog or drop.
+
+    Returns:
+        Existing supported image and video paths, with duplicates (same
+        resolved path) removed while preserving first-seen order.
+    """
+    collected: list[Path] = []
+    seen: set[Path] = set()
+
+    def _add(path: Path) -> None:
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            return
+        seen.add(key)
+        collected.append(path)
+
+    for raw in candidates:
+        path = Path(raw)
+        if _is_hidden_part(path):
+            continue
+        if path.is_file() and is_importable(path):
+            _add(path)
+            continue
+        if path.is_dir():
+            found = [
+                p
+                for p in path.rglob("*")
+                if p.is_file() and is_importable(p) and not _is_hidden_part(p)
+            ]
+            images = [p for p in found if is_supported_image(p)]
+            videos = [p for p in found if is_supported_video(p)]
+            for image in sort_chronologically(images):
+                _add(image)
+            for video in sorted(videos, key=lambda p: p.name.lower()):
+                _add(video)
+    return collected
 
 
 def _exif_datetime(path: Path) -> datetime | None:
@@ -112,3 +182,30 @@ def make_proxy(image: np.ndarray, max_edge: int = 1080) -> np.ndarray:
     new_w = max(1, int(round(w * scale)))
     new_h = max(1, int(round(h * scale)))
     return resize_hw(image, new_w, new_h)
+
+
+THUMBNAIL_EDGE: int = 96
+
+
+def write_thumbnail(
+    image: np.ndarray,
+    dest: Path | str,
+    max_edge: int = THUMBNAIL_EDGE,
+) -> Path:
+    """Write a small JPEG thumbnail of *image* for gallery list icons.
+
+    Downscales on the worker thread so the UI never decodes full-res
+    sources just to paint a row icon.
+
+    Args:
+        image: BGR source (full-res or already-proxied).
+        dest: Output JPEG path.
+        max_edge: Longest thumbnail edge in pixels.
+
+    Returns:
+        The written path.
+    """
+    path = Path(dest)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save_bgr(path, make_proxy(image, max_edge=max_edge), jpeg_quality=75)
+    return path

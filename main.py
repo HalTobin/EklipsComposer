@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VulturEklips — Eclipse Sequence Compositor entry point."""
+"""VulturEklips entry point."""
 
 from __future__ import annotations
 

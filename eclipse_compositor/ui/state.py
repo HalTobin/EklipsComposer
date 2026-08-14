@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from eclipse_compositor.cv.layout import LayoutType
+from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 
 # Floor for the resolution slider when no images are loaded yet.
 DEFAULT_MAX_RESOLUTION: int = 2400
@@ -28,7 +28,7 @@ class ImageItem:
     path: Path
     enabled: bool = True
     detection_ok: bool | None = None  # None = not yet evaluated
-    thumbnail_path: str | None = None
+    thumbnail_path: str | None = None  # small JPEG for the gallery list icon
 
 
 @dataclass(frozen=True)
@@ -43,14 +43,16 @@ class ScreenState:
     crop_size: int = 800  # per-frame square resolution (px)
     spacing: float = -0.15  # negative = overlap (typical for eclipse sequences)
     layout: LayoutType = LayoutType.ARC
-    curvature: float = 0.35
+    arc_angle: float = 120.0  # signed sweep degrees, −180…180
+    direction: LayoutDirection = LayoutDirection.HORIZONTAL
     threshold: int = 180
     grid_columns: int = 3
     grid_rows: int = 2
     # Max square crop allowed = largest native min(h, w) among imports.
     native_max_resolution: int = DEFAULT_MAX_RESOLUTION
     preview_bgr: object | None = None  # np.ndarray | None; object avoids import cycle
-    status_message: str = "Import eclipse photos to begin."
+    selected_preview_bgr: object | None = None  # proxy of the selected gallery frame
+    status_message: str = "Import eclipse photos to begin, or drop files here."
     import_status: JobStatus = JobStatus.IDLE
     preview_status: JobStatus = JobStatus.IDLE
     export_status: JobStatus = JobStatus.IDLE

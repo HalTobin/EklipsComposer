@@ -1,0 +1,66 @@
+# Eclipse Sequence Compositor - Cursor Rules
+
+## Project Context
+- **Goal:** Create a Python script to automatically detect, crop, align, and composite a sequence of solar eclipse photos into a single high-resolution final image.
+- **Primary Libraries:** OpenCV (`cv2`), NumPy (`numpy`), and Pillow (`PIL`).
+- **Target Output:** A single composited image file (e.g., TIFF or high-quality JPG) containing the ordered phases of the eclipse (linear or arc layout).
+
+## Role & Tone
+- Act as an expert Python developer specializing in computer vision (CV) and astrophotography image processing.
+- Provide highly optimized, production-ready code.
+- Prioritize mathematical precision for image alignment and memory efficiency for handling large RAW/high-res JPG files.
+
+## Coding Standards & Style
+- **Type Hints:** Use strict Python type hints for all function arguments and return values (e.g., `def find_disc_center(image: np.ndarray) -> tuple[int, int]:`).
+- **Modularity:** Break down the process into single-responsibility functions:
+  1. Image loading and preprocessing.
+  2. Disc detection (finding the center coordinates).
+  3. Cropping to a standardized bounding box.
+  4. Canvas generation and layout math.
+  5. Blending and compositing.
+- **Error Handling:** Implement robust error handling. If a photo fails disc detection (e.g., due to clouds), log a clear warning and gracefully skip or fallback, rather than crashing.
+- **Documentation:** Use Google-style docstrings for all functions, briefly explaining the CV technique being used.
+
+## Computer Vision Specifics
+- **Disc Detection Strategy:** Default to using thresholding combined with `cv2.moments` to find the center of mass of the brightest/darkest object (the sun/moon). If asked for alternatives, suggest `cv2.HoughCircles`.
+- **Image Operations:** 
+  - Do all heavy matrix operations and blending using `NumPy` and `OpenCV` for speed.
+  - Use `cv2.bitwise_or`, `cv2.addWeighted`, or `numpy.maximum` for "Lighten" blend modes when compositing overlapping coronas or discs.
+- **File I/O:** Handle EXIF data carefully. Ensure the script sorts input files chronologically by filename or EXIF creation date before processing so the sequence is in the correct order.
+
+## Layout Math
+- Assume the user may want either a linear layout (straight line) or an arc layout (quadratic curve/sine wave). 
+- Keep layout logic decoupled from the image processing logic so the user can easily swap coordinate generation functions.
+
+## Output Generation
+- Do not output generic boilerplate. When asked to write the script, provide the complete, runnable pipeline.
+- Include a `requirements.txt` generation step or list dependencies clearly.
+
+## GUI Architecture & Framework Rules
+- **Framework:** Use `PySide6` for the desktop GUI interface.
+- **Thread Separation (Crucial):** Never run heavy OpenCV image processing or detection loops on the main GUI thread. Always use `QThread` or `QRunnable` / `Worker` patterns so the interface stays responsive during rendering.
+- **Preview Optimization:** 
+  - Generate a downscaled proxy cache (e.g., max 1080p) of all selected photos upon import.
+  - Run all UI parameter changes (spacing, offset, curve) against the downscaled proxies for real-time rendering.
+  - Only use full-resolution source images when the user clicks the "Export" button.
+- **UI Components:**
+  - Sidebar: Sliders for crop size, frame spacing, composite layout type (Linear vs. Arc), and threshold sensitivity.
+  - Center Viewport: Zoomable preview area displaying the composite result.
+  - Bottom Bar / Gallery: Sortable list of imported photos with check-boxes to enable/disable specific frames.
+
+  ## UI Architecture: MVI Pattern (Strict Unidirectional Data Flow)
+- The PySide6 UI must strictly adhere to the MVI (Model-View-Intent/Action) pattern. 
+- Separate UI concerns into the following four components per screen/feature:
+  1. **`ScreenState`**: Use Python `@dataclass(frozen=True)` from the `dataclasses` module. It must represent the complete state of the UI at any given moment. Use `dataclasses.replace()` to generate new states.
+  2. **`ScreenAction`**: Define a base class `ScreenAction`. Define all possible UI events as `@dataclass` classes inheriting from `ScreenAction` (e.g., `LoadImages`, `UpdateSpacing`, `ToggleImage`, `ExportComposite`).
+  3. **`ScreenViewModel`**: 
+     - Must inherit from `PySide6.QtCore.QObject`.
+     - Expose a `state_changed = Signal(ScreenState)` to notify the view.
+     - Hold the current `_state` internally.
+     - Expose a single `dispatch(self, action: ScreenAction)` method. Use Python 3.10 structural pattern matching (`match action: case ...:`) to handle actions, compute the new state, and emit `state_changed`.
+     - Offload heavy CV tasks (like full-res export or bulk alignment) to a `QThread` or `QRunnable`, and dispatch progress/result actions back to the ViewModel to update the state.
+  4. **`ScreenView`**: 
+     - Must inherit from `PySide6.QtWidgets.QWidget` (or QMainWindow).
+     - Initialize with a reference to the `ScreenViewModel`.
+     - Connect UI interaction signals (clicks, slider moves) exclusively to `self.view_model.dispatch(Action(...))`.
+     - Connect the ViewModel's `state_changed` signal to a single `render(self, state: ScreenState)` method that updates all UI elements to match the given state. Do not update UI components directly from user interactions.

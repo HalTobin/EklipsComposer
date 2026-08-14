@@ -1,7 +1,8 @@
 """Layout math for placing cropped discs on the composite canvas.
 
 Layout generation is intentionally decoupled from image processing so linear,
-vertical, arc, and grid placements can be swapped freely.
+arc, and grid placements can be swapped freely. Direction (horizontal, vertical,
+diagonal) is applied as a rigid rotation so every family shares the same spacing.
 """
 
 from __future__ import annotations
@@ -13,12 +14,41 @@ import numpy as np
 
 
 class LayoutType(str, Enum):
-    """Composite arrangement of eclipse phases."""
+    """Composite arrangement family."""
 
     LINEAR = "linear"
-    VERTICAL = "vertical"
     ARC = "arc"
     GRID = "grid"
+
+
+class LayoutDirection(str, Enum):
+    """Orientation of linear and arc layouts.
+
+    Angles are clockwise in image coordinates (y increases downward):
+    horizontal →, diagonal ↘, vertical ↓, diagonal ↙.
+    """
+
+    HORIZONTAL = "horizontal"
+    DIAGONAL = "diagonal"
+    VERTICAL = "vertical"
+    DIAGONAL_REVERSE = "diagonal_reverse"
+
+
+# Clockwise degrees in a y-down coordinate system.
+_DIRECTION_DEGREES: dict[LayoutDirection, float] = {
+    LayoutDirection.HORIZONTAL: 0.0,
+    LayoutDirection.DIAGONAL: 45.0,
+    LayoutDirection.VERTICAL: 90.0,
+    LayoutDirection.DIAGONAL_REVERSE: 135.0,
+}
+
+# Below this sweep the circular arc is numerically a straight line.
+_MIN_ARC_DEGREES = 0.5
+
+
+def direction_degrees(direction: LayoutDirection) -> float:
+    """Return the clockwise rotation (degrees) for *direction*."""
+    return _DIRECTION_DEGREES[direction]
 
 
 def linear_positions(
@@ -74,22 +104,23 @@ def arc_positions(
     count: int,
     frame_size: int,
     spacing: float,
-    curvature: float = 0.35,
+    arc_angle: float = 120.0,
     origin: tuple[float, float] = (0.0, 0.0),
 ) -> list[tuple[float, float]]:
-    """Place frames along a gentle downward arc (sine-based).
+    """Place frames at equal arc-length on a circular arc.
 
-    The arc spans horizontally like the linear layout; vertical offset follows
-    ``sin(pi * t)`` scaled by *curvature* * total span, producing a classic
-    eclipse-sequence bow.
+    Equal angular steps on a circle give constant centre-to-centre distance,
+    so discs at the corners and at the bottom of the bow appear evenly spaced.
+    *arc_angle* is the signed sweep in degrees (−180…180): magnitude is the
+    bow size (0 = line, 180 = semicircle); the sign flips the bow
+    (positive = downward smile, negative = upward frown).
 
     Args:
         count: Number of frames.
         frame_size: Square frame side length in pixels.
-        spacing: Horizontal gap fraction (same semantics as linear).
-        curvature: Vertical bow depth as a fraction of the horizontal span.
-            0 degenerates to a straight line.
-        origin: Anchor for the leftmost frame's top-left before bow offset.
+        spacing: Path gap fraction (same semantics as linear).
+        arc_angle: Signed sweep in degrees, clamped to [−180, 180].
+        origin: Anchor applied after the arc is generated.
 
     Returns:
         List of (x, y) top-left coordinates for each frame.
@@ -99,17 +130,26 @@ def arc_positions(
     if count == 1:
         return [origin]
 
+    theta_deg = max(-180.0, min(180.0, float(arc_angle)))
+    if abs(theta_deg) < _MIN_ARC_DEGREES:
+        return linear_positions(count, frame_size, spacing, origin)
+
     step = frame_size * (1.0 + spacing)
-    span = step * (count - 1)
-    amplitude = curvature * span
+    abs_theta = math.radians(abs(theta_deg))
+    total_arc = step * (count - 1)
+    radius = total_arc / abs_theta
+    half = abs_theta / 2.0
+    sign = 1.0 if theta_deg >= 0.0 else -1.0
     ox, oy = origin
 
     positions: list[tuple[float, float]] = []
     for i in range(count):
         t = i / (count - 1)
-        x = ox + i * step
-        y = oy + amplitude * float(np.sin(np.pi * t))
-        positions.append((x, y))
+        phi = -half + t * abs_theta
+        # Image y increases downward: +cos puts the bow below the chord.
+        x = radius * math.sin(phi)
+        y = sign * radius * math.cos(phi)
+        positions.append((ox + x, oy + y))
     return positions
 
 
@@ -154,24 +194,50 @@ def grid_positions(
     return positions
 
 
+def rotate_positions(
+    positions: list[tuple[float, float]],
+    angle_deg: float,
+    pivot: tuple[float, float] = (0.0, 0.0),
+) -> list[tuple[float, float]]:
+    """Rotate *positions* clockwise by *angle_deg* around *pivot* (y-down).
+
+    The standard 2D rotation formula is clockwise in image coordinates because
+    y increases downward, which maps 45° → ↘, 90° → ↓, 135° → ↙.
+    """
+    if not positions or abs(angle_deg) < 1e-9:
+        return positions
+    rad = math.radians(angle_deg)
+    cos_a = math.cos(rad)
+    sin_a = math.sin(rad)
+    px, py = pivot
+    rotated: list[tuple[float, float]] = []
+    for x, y in positions:
+        dx = x - px
+        dy = y - py
+        rotated.append((px + dx * cos_a - dy * sin_a, py + dx * sin_a + dy * cos_a))
+    return rotated
+
+
 def generate_positions(
     layout: LayoutType,
     count: int,
     frame_size: int,
     spacing: float,
-    curvature: float = 0.35,
+    arc_angle: float = 120.0,
+    direction: LayoutDirection = LayoutDirection.HORIZONTAL,
     grid_columns: int = 3,
     grid_rows: int = 1,
     origin: tuple[float, float] = (0.0, 0.0),
 ) -> list[tuple[float, float]]:
-    """Dispatch to the selected layout function.
+    """Dispatch to the selected layout function and apply *direction*.
 
     Args:
-        layout: Arrangement mode.
+        layout: Arrangement family (linear, arc, or grid).
         count: Number of frames.
         frame_size: Square crop size.
         spacing: Inter-frame gap fraction.
-        curvature: Arc bow depth (ignored unless arc).
+        arc_angle: Signed circular-arc sweep in degrees (ignored unless arc).
+        direction: Orientation applied to linear and arc layouts.
         grid_columns: Grid column count (ignored unless grid).
         grid_rows: Grid row count (ignored unless grid).
         origin: Layout origin.
@@ -179,15 +245,19 @@ def generate_positions(
     Returns:
         Top-left positions for each frame.
     """
-    if layout == LayoutType.ARC:
-        return arc_positions(count, frame_size, spacing, curvature, origin)
-    if layout == LayoutType.VERTICAL:
-        return vertical_positions(count, frame_size, spacing, origin)
     if layout == LayoutType.GRID:
         return grid_positions(
             count, frame_size, spacing, grid_columns, grid_rows, origin
         )
-    return linear_positions(count, frame_size, spacing, origin)
+    if layout == LayoutType.ARC:
+        positions = arc_positions(count, frame_size, spacing, arc_angle, origin)
+    else:
+        positions = linear_positions(count, frame_size, spacing, origin)
+
+    angle = direction_degrees(direction)
+    if abs(angle) < 1e-9:
+        return positions
+    return rotate_positions(positions, angle, origin)
 
 
 def canvas_size_from_positions(

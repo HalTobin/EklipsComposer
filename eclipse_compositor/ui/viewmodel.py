@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import logging
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 
-from eclipse_compositor.cv.layout import LayoutType
+from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
+from eclipse_compositor.cv.video import is_supported_video
 from eclipse_compositor.ui.actions import (
     ClearImages,
     ExportComposite,
@@ -28,8 +30,9 @@ from eclipse_compositor.ui.actions import (
     ScreenAction,
     SelectImage,
     ToggleImage,
+    UpdateArcAngle,
     UpdateCropSize,
-    UpdateCurvature,
+    UpdateDirection,
     UpdateGridColumns,
     UpdateGridRows,
     UpdateLayout,
@@ -69,6 +72,8 @@ class ScreenViewModel(QObject):
         self._pool = QThreadPool.globalInstance()
         self._proxy_cache: dict[Path, np.ndarray] = {}
         self._full_shapes: dict[Path, tuple[int, int]] = {}
+        self._video_tmpdir: tempfile.TemporaryDirectory[str] | None = None
+        self._thumb_tmpdir: tempfile.TemporaryDirectory[str] | None = None
         self._preview_debounce = QTimer(self)
         self._preview_debounce.setSingleShot(True)
         self._preview_debounce.setInterval(180)
@@ -120,12 +125,31 @@ class ScreenViewModel(QObject):
         self._state = new_state
         self.state_changed.emit(new_state)
 
+    def _with_selected_frame(
+        self,
+        state: ScreenState,
+        index: int | None,
+    ) -> ScreenState:
+        """Attach the proxy preview for *index* (or clear if none)."""
+        images = state.images
+        if index is not None and not (0 <= index < len(images)):
+            index = None
+        preview = None
+        if index is not None:
+            preview = self._proxy_cache.get(images[index].path)
+        return replace(
+            state,
+            selected_index=index,
+            selected_preview_bgr=preview,
+        )
+
     def _compose_params(self) -> ComposeParams:
         return params_from_state(
             self._state.crop_size,
             self._state.spacing,
             self._state.layout,
-            self._state.curvature,
+            self._state.arc_angle,
+            self._state.direction,
             self._state.threshold,
             self._state.grid_columns,
             self._state.grid_rows,
@@ -135,12 +159,21 @@ class ScreenViewModel(QObject):
     def dispatch(self, action: ScreenAction) -> None:
         """Apply *action* using structural pattern matching and emit new state."""
         match action:
-            case LoadImages(paths=paths):
-                self._start_import(list(paths))
+            case LoadImages(paths=paths, video_frame_step=video_frame_step):
+                if (
+                    self._state.import_status == JobStatus.RUNNING
+                    or self._state.export_status == JobStatus.RUNNING
+                ):
+                    return
+                if not paths:
+                    return
+                self._start_import(list(paths), video_frame_step=video_frame_step)
 
             case ClearImages():
                 self._proxy_cache.clear()
                 self._full_shapes.clear()
+                self._clear_video_tmpdir()
+                self._clear_thumb_tmpdir()
                 self._emit(
                     replace(
                         self._state,
@@ -148,9 +181,10 @@ class ScreenViewModel(QObject):
                         preview_bgr=None,
                         proxy_ready=False,
                         native_max_resolution=DEFAULT_MAX_RESOLUTION,
-                        status_message="Import eclipse photos to begin.",
+                        status_message="Import eclipse photos to begin, or drop files here.",
                         error_message=None,
                         selected_index=None,
+                        selected_preview_bgr=None,
                         import_status=JobStatus.IDLE,
                         export_status=JobStatus.IDLE,
                         preview_status=JobStatus.IDLE,
@@ -165,10 +199,24 @@ class ScreenViewModel(QObject):
                     self._schedule_preview()
 
             case SelectImage(index=index):
-                self._emit(replace(self._state, selected_index=index))
+                self._emit(self._with_selected_frame(self._state, index))
 
             case ReorderImages(images=images):
-                self._emit(replace(self._state, images=images))
+                selected_path: Path | None = None
+                sel = self._state.selected_index
+                if sel is not None and 0 <= sel < len(self._state.images):
+                    selected_path = self._state.images[sel].path
+                new_index = None
+                if selected_path is not None:
+                    for i, item in enumerate(images):
+                        if item.path == selected_path:
+                            new_index = i
+                            break
+                self._emit(
+                    self._with_selected_frame(
+                        replace(self._state, images=images), new_index
+                    )
+                )
                 self._schedule_preview()
 
             case UpdateCropSize(value=value):
@@ -188,8 +236,18 @@ class ScreenViewModel(QObject):
                 self._emit(replace(self._state, layout=layout))
                 self._schedule_preview()
 
-            case UpdateCurvature(value=value):
-                self._emit(replace(self._state, curvature=float(value)))
+            case UpdateArcAngle(value=value):
+                angle = max(-180.0, min(180.0, float(value)))
+                self._emit(replace(self._state, arc_angle=angle))
+                self._schedule_preview()
+
+            case UpdateDirection(value=value):
+                direction = (
+                    value
+                    if isinstance(value, LayoutDirection)
+                    else LayoutDirection(value)
+                )
+                self._emit(replace(self._state, direction=direction))
                 self._schedule_preview()
 
             case UpdateThreshold(value=value):
@@ -237,20 +295,29 @@ class ScreenViewModel(QObject):
                 ]
                 native_max = native_max_from_shapes(self._full_shapes)
                 crop_size = min(self._state.crop_size, native_max)
+                merged_tuple = tuple(merged)
+                selected = self._state.selected_index
+                if selected is None and merged_tuple:
+                    selected = 0
+                elif selected is not None and selected >= len(merged_tuple):
+                    selected = 0 if merged_tuple else None
                 self._emit(
-                    replace(
-                        self._state,
-                        images=tuple(merged),
-                        import_status=JobStatus.IDLE,
-                        proxy_ready=True,
-                        native_max_resolution=native_max,
-                        crop_size=crop_size,
-                        progress=1.0,
-                        status_message=(
-                            f"Imported {len(images)} frame(s). "
-                            "Preview updates live as you adjust settings."
+                    self._with_selected_frame(
+                        replace(
+                            self._state,
+                            images=merged_tuple,
+                            import_status=JobStatus.IDLE,
+                            proxy_ready=True,
+                            native_max_resolution=native_max,
+                            crop_size=crop_size,
+                            progress=1.0,
+                            status_message=(
+                                f"Imported {len(images)} frame(s). "
+                                "Preview updates live as you adjust settings."
+                            ),
+                            error_message=None,
                         ),
-                        error_message=None,
+                        selected,
                     )
                 )
                 self._schedule_preview()
@@ -363,7 +430,7 @@ class ScreenViewModel(QObject):
             return
         self._preview_debounce.start()
 
-    def _start_import(self, paths: list[Path]) -> None:
+    def _start_import(self, paths: list[Path], video_frame_step: int = 1) -> None:
         gen = self._state._proxy_generation + 1
         self._emit(
             replace(
@@ -376,14 +443,56 @@ class ScreenViewModel(QObject):
                 _proxy_generation=gen,
             )
         )
+        frame_dir = None
+        if any(is_supported_video(path) for path in paths):
+            frame_dir = self._ensure_video_tmpdir()
         worker = ImportWorker(
             paths,
             self._proxy_cache,
             self._full_shapes,
             gen,
             self._import_signals,
+            frame_dir=frame_dir,
+            thumb_dir=self._ensure_thumb_tmpdir(),
+            video_frame_step=video_frame_step,
         )
         self._pool.start(worker)
+
+    def _ensure_video_tmpdir(self) -> Path:
+        """Return the directory used to persist extracted video stills."""
+        if self._video_tmpdir is None:
+            self._video_tmpdir = tempfile.TemporaryDirectory(
+                prefix="vultureklips_frames_"
+            )
+        return Path(self._video_tmpdir.name)
+
+    def _ensure_thumb_tmpdir(self) -> Path:
+        """Return the directory used to persist gallery list thumbnails."""
+        if self._thumb_tmpdir is None:
+            self._thumb_tmpdir = tempfile.TemporaryDirectory(
+                prefix="vultureklips_thumbs_"
+            )
+        return Path(self._thumb_tmpdir.name)
+
+    def _clear_video_tmpdir(self) -> None:
+        """Delete extracted video stills (called when the gallery is cleared)."""
+        if self._video_tmpdir is None:
+            return
+        try:
+            self._video_tmpdir.cleanup()
+        except OSError as exc:
+            logger.warning("Failed to clean up extracted video frames: %s", exc)
+        self._video_tmpdir = None
+
+    def _clear_thumb_tmpdir(self) -> None:
+        """Delete gallery thumbnails (called when the gallery is cleared)."""
+        if self._thumb_tmpdir is None:
+            return
+        try:
+            self._thumb_tmpdir.cleanup()
+        except OSError as exc:
+            logger.warning("Failed to clean up frame thumbnails: %s", exc)
+        self._thumb_tmpdir = None
 
     def _run_preview(self) -> None:
         if not self._state.proxy_ready:

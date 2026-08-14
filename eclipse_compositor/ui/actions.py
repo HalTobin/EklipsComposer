@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from eclipse_compositor.cv.layout import LayoutType
+from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 from eclipse_compositor.ui.state import ImageItem
 
 
@@ -18,6 +18,7 @@ class LoadImages(ScreenAction):
     """User selected files or a folder to import."""
 
     paths: tuple[Path, ...]
+    video_frame_step: int = 1
 
 
 @dataclass(frozen=True)
@@ -63,8 +64,13 @@ class UpdateLayout(ScreenAction):
 
 
 @dataclass(frozen=True)
-class UpdateCurvature(ScreenAction):
+class UpdateArcAngle(ScreenAction):
     value: float
+
+
+@dataclass(frozen=True)
+class UpdateDirection(ScreenAction):
+    value: LayoutDirection
 
 
 @dataclass(frozen=True)

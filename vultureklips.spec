@@ -19,6 +19,19 @@ datas: list = []
 binaries: list = []
 hiddenimports: list[str] = ["piexif"]
 
+_ffmpeg = ROOT / "third_party" / "ffmpeg" / "ffmpeg"
+if sys.platform == "win32":
+    _win = ROOT / "third_party" / "ffmpeg" / "ffmpeg.exe"
+    if _win.is_file():
+        _ffmpeg = _win
+if _ffmpeg.is_file():
+    binaries.append((str(_ffmpeg), "."))
+else:
+    raise SystemExit(
+        "Decode-only ffmpeg is missing. Run build_scripts/build_ffmpeg.sh "
+        "before packaging (macos.sh does this automatically)."
+    )
+
 # macOS: BUNDLE copies the .icns into Contents/Resources — do not also
 # ship it under assets/ (that doubled the icon). Windows/Linux still need
 # a loose file for QIcon.
@@ -44,6 +57,7 @@ excludes = [
     "scipy",
     "tkinter",
     "cv2",
+    "imageio_ffmpeg",
     "ssl",
     "_ssl",
     "_hashlib",
@@ -175,6 +189,7 @@ _DROP_SUBSTR = (
     "numpy/fft",
     "numpy/f2py",
     "numpy/testing",
+    "imageio_ffmpeg",
     "_codecs_jp",
     "_codecs_cn",
     "_codecs_hk",
@@ -197,7 +212,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[str(ROOT / "build_scripts" / "pyi_rth_ffmpeg.py")],
     excludes=excludes,
     noarchive=False,
 )
@@ -243,7 +258,7 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "VulturEklips",
         "CFBundleName": "VulturEklips",
-        "CFBundleShortVersionString": "0.1.0",
+        "CFBundleShortVersionString": "0.2.0",
         "NSHighResolutionCapable": True,
     },
 )
