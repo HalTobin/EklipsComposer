@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -36,6 +37,7 @@ class WorkerSignals(QObject):
     project_saved = Signal(object)  # Path
     project_opened = Signal(object, int)  # ProjectOpenResult, generation
     failed = Signal(str)
+    cancelled = Signal(object)  # threading.Event token for the stopped job
 
 
 def cache_imported_frame(
@@ -225,7 +227,7 @@ class PreviewWorker(QRunnable):
             self.signals.failed.emit(str(exc))
 
     def _scaled_params(self) -> ComposeParams:
-        """Map full-res crop/padding onto proxy scale using cached shapes."""
+        """Map full-res crop and canvas margins onto proxy scale."""
         if not self.paths:
             return self.params
         first = self.paths[0]
@@ -242,7 +244,8 @@ class PreviewWorker(QRunnable):
         return replace(
             self.params,
             crop_size=max(32, int(round(self.params.crop_size * scale))),
-            padding=max(8, int(round(self.params.padding * scale))),
+            margin_x=_scale_margin(self.params.margin_x, scale),
+            margin_y=_scale_margin(self.params.margin_y, scale),
         )
 
 
@@ -255,24 +258,42 @@ class ExportWorker(QRunnable):
         params: ComposeParams,
         output_path: Path,
         signals: WorkerSignals,
+        cancel: threading.Event,
     ) -> None:
         super().__init__()
         self.paths = paths
         self.params = params
         self.output_path = output_path
         self.signals = signals
+        self.cancel = cancel
         self.setAutoDelete(True)
+
+    def _progress(self, fraction: float, message: str) -> None:
+        if self.cancel.is_set():
+            raise InterruptedError("Cancelled")
+        self.signals.progress.emit(fraction, message)
 
     @Slot()
     def run(self) -> None:
         try:
-            self.signals.progress.emit(0.05, "Exporting full-resolution composite…")
+            self._progress(0.02, "Exporting full-resolution composite…")
             _, _used, skipped = export_composite(
-                self.paths, self.params, self.output_path
+                self.paths,
+                self.params,
+                self.output_path,
+                on_progress=self._progress,
+                should_cancel=self.cancel.is_set,
             )
-            self.signals.progress.emit(1.0, f"Saved {self.output_path.name}")
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             self.signals.export_finished.emit(self.output_path, tuple(skipped))
+        except InterruptedError:
+            self.signals.cancelled.emit(self.cancel)
         except Exception as exc:  # noqa: BLE001
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             logger.exception("Export failed")
             self.signals.failed.emit(str(exc))
 
@@ -285,24 +306,42 @@ class ProjectSaveWorker(QRunnable):
         blueprint: ProjectBlueprint,
         output_path: Path,
         signals: WorkerSignals,
+        cancel: threading.Event,
     ) -> None:
         super().__init__()
         self.blueprint = blueprint
         self.output_path = output_path
         self.signals = signals
+        self.cancel = cancel
         self.setAutoDelete(True)
+
+    def _progress(self, fraction: float, message: str) -> None:
+        if self.cancel.is_set():
+            raise InterruptedError("Cancelled")
+        self.signals.progress.emit(fraction, message)
 
     @Slot()
     def run(self) -> None:
         try:
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             service = default_project_service()
             saved = service.save(
                 self.blueprint,
                 self.output_path,
-                progress=lambda p, m: self.signals.progress.emit(p, m),
+                progress=self._progress,
             )
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             self.signals.project_saved.emit(saved)
+        except InterruptedError:
+            self.signals.cancelled.emit(self.cancel)
         except Exception as exc:  # noqa: BLE001
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             logger.exception("Save project failed")
             self.signals.failed.emit(str(exc))
 
@@ -316,6 +355,7 @@ class ProjectOpenWorker(QRunnable):
         extract_dir: Path,
         generation: int,
         signals: WorkerSignals,
+        cancel: threading.Event,
         max_edge: int = 1080,
     ) -> None:
         super().__init__()
@@ -323,15 +363,24 @@ class ProjectOpenWorker(QRunnable):
         self.extract_dir = extract_dir
         self.generation = generation
         self.signals = signals
+        self.cancel = cancel
         self.max_edge = max_edge
         self.setAutoDelete(True)
+
+    def _progress(self, fraction: float, message: str) -> None:
+        if self.cancel.is_set():
+            raise InterruptedError("Cancelled")
+        self.signals.progress.emit(fraction, message)
 
     @Slot()
     def run(self) -> None:
         try:
-            self.signals.progress.emit(0.02, "Opening project…")
+            self._progress(0.02, "Opening project…")
             service = default_project_service()
             loaded = service.open(self.archive_path, self.extract_dir)
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             proxy_cache: dict[Path, np.ndarray] = {}
             full_shapes: dict[Path, tuple[int, int]] = {}
             thumb_dir = self.extract_dir / "thumbs"
@@ -341,7 +390,7 @@ class ProjectOpenWorker(QRunnable):
             for i, (record, path) in enumerate(
                 zip(loaded.document.frames, loaded.frame_paths, strict=True)
             ):
-                self.signals.progress.emit(
+                self._progress(
                     0.1 + 0.85 * ((i + 1) / total),
                     f"Loading {path.name}…",
                 )
@@ -357,6 +406,9 @@ class ProjectOpenWorker(QRunnable):
                         max_edge=self.max_edge,
                     )
                 )
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             result = ProjectOpenResult(
                 document=loaded.document,
                 images=tuple(items),
@@ -365,11 +417,26 @@ class ProjectOpenWorker(QRunnable):
                 extract_dir=self.extract_dir,
                 project_path=self.archive_path,
             )
-            self.signals.progress.emit(1.0, "Project loaded.")
+            self._progress(1.0, "Project loaded.")
             self.signals.project_opened.emit(result, self.generation)
+        except InterruptedError:
+            self.signals.cancelled.emit(self.cancel)
         except Exception as exc:  # noqa: BLE001
+            if self.cancel.is_set():
+                self.signals.cancelled.emit(self.cancel)
+                return
             logger.exception("Open project failed")
             self.signals.failed.emit(str(exc))
+
+
+def _scale_margin(value: int, scale: float) -> int:
+    """Map a full-res canvas margin onto proxy scale, preserving sign."""
+    if value == 0:
+        return 0
+    scaled = int(round(value * scale))
+    if scaled == 0:
+        return 1 if value > 0 else -1
+    return scaled
 
 
 def params_from_state(state: ScreenState) -> ComposeParams:
@@ -381,7 +448,8 @@ def params_from_state(state: ScreenState) -> ComposeParams:
         arc_angle=state.arc_angle,
         direction=state.direction,
         threshold=state.threshold,
-        padding=40,
+        margin_x=state.margin_x,
+        margin_y=state.margin_y,
         grid_columns=state.grid_columns,
         grid_rows=state.grid_rows,
         contrast=state.contrast,

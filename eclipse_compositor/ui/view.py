@@ -4,8 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QKeySequence
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QDragEnterEvent,
+    QDragMoveEvent,
+    QDropEvent,
+    QKeySequence,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -17,12 +25,12 @@ from PySide6.QtWidgets import (
 )
 
 from eclipse_compositor.ui.actions import (
+    CancelJob,
     ClearImages,
     ExportComposite,
     LoadImages,
     OpenProject,
     ReorderImages,
-    RequestPreview,
     ResetColorimetry,
     SaveProject,
     SelectImage,
@@ -40,6 +48,10 @@ from eclipse_compositor.ui.actions import (
     UpdateMaskEnabled,
     UpdateMaskFeather,
     UpdateMaskSize,
+    UpdateMarginGlobal,
+    UpdateMarginLinked,
+    UpdateMarginX,
+    UpdateMarginY,
     UpdateSaturation,
     UpdateSpacing,
     UpdateTemperature,
@@ -57,10 +69,14 @@ from eclipse_compositor.project import PROJECT_SUFFIX, is_project_file
 from eclipse_compositor.resources import app_icon_path
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
 from eclipse_compositor.ui.state import JobStatus, ScreenState
+from eclipse_compositor.ui.theme import qicon_from_path
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
+from eclipse_compositor.ui.widgets.about_dialog import show_about_dialog
 from eclipse_compositor.ui.widgets.gallery import GalleryBar
 from eclipse_compositor.ui.widgets.sidebar import Sidebar
-from eclipse_compositor.ui.widgets.viewport import PreviewViewport
+from eclipse_compositor.ui.widgets.fullscreen_preview import FullscreenPreview
+from eclipse_compositor.ui.widgets.job_overlay import JobOverlay
+from eclipse_compositor.ui.widgets.viewport import ViewportPane
 from eclipse_compositor.ui.widgets.video_import_dialog import confirm_video_import
 
 
@@ -70,42 +86,42 @@ class ScreenView(QMainWindow):
     def __init__(self, view_model: ScreenViewModel) -> None:
         super().__init__()
         self.view_model = view_model
-        self.setWindowTitle("VulturEklips")
-        icon_file = app_icon_path()
-        if icon_file.is_file():
-            self.setWindowIcon(QIcon(str(icon_file)))
-        self.resize(1280, 800)
-
+        self.setWindowTitle("EklipsComposer")
+        icon = qicon_from_path(app_icon_path())
+        if not icon.isNull():
+            self.setWindowIcon(icon)
+        self.resize(1440, 880)
         self.sidebar = Sidebar()
-        self.viewport = PreviewViewport()
+        self.viewport = ViewportPane()
         self.gallery = GalleryBar()
 
         root = QWidget()
         h = QHBoxLayout(root)
         h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(0)
         hsplit = QSplitter(Qt.Orientation.Horizontal)
+        hsplit.setHandleWidth(1)
+        hsplit.setChildrenCollapsible(False)
         hsplit.addWidget(self.sidebar)
         hsplit.addWidget(self.viewport)
         hsplit.addWidget(self.gallery)
         hsplit.setStretchFactor(0, 0)
         hsplit.setStretchFactor(1, 4)
         hsplit.setStretchFactor(2, 1)
-        hsplit.setSizes([300, 700, 280])
+        hsplit.setSizes([360, 760, 300])
         h.addWidget(hsplit)
         self.setCentralWidget(root)
         self.setAcceptDrops(True)
-        self._build_file_menu()
+        self._fullscreen: FullscreenPreview | None = None
+        self._pending_after_save: str | None = None
+        self._pending_open_path: Path | None = None
+        self.job_overlay = JobOverlay(root)
+        self._build_menus()
 
         # Intents → dispatch
-        self.sidebar.import_clicked.connect(self._on_import)
-        self.sidebar.open_clicked.connect(self._on_open)
-        self.sidebar.save_clicked.connect(self._on_save)
-        self.sidebar.clear_clicked.connect(
-            lambda: self.view_model.dispatch(ClearImages())
-        )
-        self.sidebar.preview_clicked.connect(
-            lambda: self.view_model.dispatch(RequestPreview())
-        )
+        self.gallery.import_clicked.connect(self._on_import)
+        self.viewport.import_clicked.connect(self._on_import)
+        self.sidebar.fullscreen_clicked.connect(self._on_fullscreen_preview)
         self.sidebar.export_clicked.connect(self._on_export)
         self.sidebar.crop_size_changed.connect(
             lambda v: self.view_model.dispatch(UpdateCropSize(v))
@@ -161,6 +177,18 @@ class ScreenView(QMainWindow):
         self.sidebar.mask_feather_changed.connect(
             lambda v: self.view_model.dispatch(UpdateMaskFeather(v))
         )
+        self.sidebar.margin_linked_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateMarginLinked(v))
+        )
+        self.sidebar.margin_global_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateMarginGlobal(v))
+        )
+        self.sidebar.margin_x_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateMarginX(v))
+        )
+        self.sidebar.margin_y_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateMarginY(v))
+        )
         self.gallery.toggle_image.connect(
             lambda i, e: self.view_model.dispatch(ToggleImage(i, e))
         )
@@ -175,6 +203,10 @@ class ScreenView(QMainWindow):
         self.viewport.zoom_changed.connect(
             lambda z: self.view_model.dispatch(UpdateZoom(z))
         )
+        self.viewport.full_clicked.connect(self._on_fullscreen_preview)
+        self.job_overlay.cancel_clicked.connect(
+            lambda: self.view_model.dispatch(CancelJob())
+        )
 
         self.view_model.state_changed.connect(self.render)
         self._last_preview_ref: object | None = None
@@ -183,9 +215,10 @@ class ScreenView(QMainWindow):
     def render(self, state: ScreenState) -> None:
         """Single render entry: sync all child widgets to *state*."""
         if state.last_project_path is not None:
-            self.setWindowTitle(f"VulturEklips — {state.last_project_path.name}")
+            self.setWindowTitle(f"EklipsComposer — {state.last_project_path.name}[*]")
         else:
-            self.setWindowTitle("VulturEklips")
+            self.setWindowTitle("EklipsComposer[*]")
+        self.setWindowModified(state.dirty)
         self.sidebar.render(state)
         self.gallery.render(state)
         preview = state.preview_bgr
@@ -193,16 +226,147 @@ class ScreenView(QMainWindow):
             self._last_preview_ref = preview
             # New composite → fit entire image in the viewport by default.
             self.viewport.set_preview(preview, fit=True)  # type: ignore[arg-type]
+            if self._fullscreen is not None and self._fullscreen.isVisible():
+                if preview is None:
+                    self._fullscreen.close()
+                else:
+                    self._fullscreen.set_preview(preview, fit=True)  # type: ignore[arg-type]
         elif not self.viewport.is_fit_mode():
             self.viewport.set_zoom(state.zoom)
         has_images = len(state.images) > 0
+        has_project = state.last_project_path is not None
+        locked = state.blocking_job is not None
         busy = (
-            state.import_status == JobStatus.RUNNING
+            locked
+            or state.import_status == JobStatus.RUNNING
             or state.export_status == JobStatus.RUNNING
             or state.preview_status == JobStatus.RUNNING
         )
+        self.menuBar().setEnabled(not locked)
+        self._new_action.setEnabled(not busy and has_images)
         self._open_action.setEnabled(not busy)
-        self._save_action.setEnabled(not busy and has_images)
+        self._save_action.setEnabled(not busy and has_images and has_project)
+        self._save_as_action.setEnabled(not busy and has_images)
+        self._export_action.setEnabled(not busy and has_images)
+        self._fullscreen_action.setEnabled(state.preview_bgr is not None)
+        self.viewport.set_import_enabled(not busy)
+        self.job_overlay.render(state)
+        self._layout_job_overlay()
+        self._complete_pending_after_save(state)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._layout_job_overlay()
+
+    def _layout_job_overlay(self) -> None:
+        """Keep the lock overlay covering the editor chrome."""
+        central = self.centralWidget()
+        if central is None:
+            return
+        self.job_overlay.setGeometry(central.rect())
+        if self.view_model.state.blocking_job is not None:
+            self.job_overlay.raise_()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.view_model.state.blocking_job is not None:
+            event.ignore()
+            return
+        if not self.view_model.state.dirty:
+            event.accept()
+            return
+        if self._pending_after_save is not None:
+            event.ignore()
+            return
+        if self._offer_save_before("close"):
+            event.accept()
+            return
+        event.ignore()
+
+    def _offer_save_before(
+        self, action: str, *, open_path: Path | None = None
+    ) -> bool:
+        """Ask to save dirty work. True means the caller may proceed now."""
+        state = self.view_model.state
+        if not state.dirty:
+            return True
+        name = (
+            state.last_project_path.name
+            if state.last_project_path is not None
+            else "Untitled"
+        )
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Unsaved changes")
+        box.setText(f'Do you want to save the changes to “{name}”?')
+        box.setInformativeText("Your changes will be lost if you don't save them.")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Save)
+        result = box.exec()
+        if result == QMessageBox.StandardButton.Discard:
+            return True
+        if result == QMessageBox.StandardButton.Save:
+            self._begin_save_then(action, open_path=open_path)
+        return False
+
+    def _begin_save_then(
+        self, action: str, *, open_path: Path | None = None
+    ) -> None:
+        """Save, then run *action* (``new``, ``close``, or ``open``)."""
+        state = self.view_model.state
+        path = state.last_project_path
+        if path is None:
+            path = self._choose_save_path()
+            if path is None:
+                return
+        self._pending_after_save = action
+        self._pending_open_path = open_path
+        if state.export_status != JobStatus.RUNNING:
+            self.view_model.dispatch(SaveProject(path))
+
+    def _complete_pending_after_save(self, state: ScreenState) -> None:
+        """Finish New / Close / Open once a prompted save has settled."""
+        pending = self._pending_after_save
+        if pending is None:
+            return
+        if state.export_status == JobStatus.RUNNING:
+            return
+        if state.dirty:
+            self._pending_after_save = None
+            self._pending_open_path = None
+            return
+        self._pending_after_save = None
+        open_path = self._pending_open_path
+        self._pending_open_path = None
+        if pending == "new":
+            QTimer.singleShot(0, lambda: self.view_model.dispatch(ClearImages()))
+        elif pending == "close":
+            QTimer.singleShot(0, self.close)
+        elif pending == "open" and open_path is not None:
+            QTimer.singleShot(
+                0, lambda path=open_path: self.view_model.dispatch(OpenProject(path))
+            )
+
+    def _choose_save_path(self) -> Path | None:
+        """Ask where to write a ``.vlt`` project. None if cancelled."""
+        suggested = "composition.vlt"
+        if self.view_model.state.last_project_path is not None:
+            suggested = str(self.view_model.state.last_project_path)
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save project",
+            suggested,
+            f"EklipsComposer project (*{PROJECT_SUFFIX})",
+        )
+        if not path:
+            return None
+        out = Path(path)
+        if out.suffix.lower() != PROJECT_SUFFIX:
+            out = out.with_suffix(PROJECT_SUFFIX)
+        return out
 
     def _import_busy(self) -> bool:
         """True when a drop/import would conflict with a running job."""
@@ -332,17 +496,77 @@ class ScreenView(QMainWindow):
                 out = out.with_suffix(".tif")
         self.view_model.dispatch(ExportComposite(out))
 
-    def _build_file_menu(self) -> None:
-        """File menu for opening and saving ``.vlt`` projects."""
+    def _build_menus(self) -> None:
+        """File, View, and Help menus (About lives in the macOS app menu)."""
         menu = self.menuBar().addMenu("&File")
+        self._new_action = QAction("New", self)
+        self._new_action.setShortcut(QKeySequence.StandardKey.New)
+        self._new_action.triggered.connect(self._on_new)
+        menu.addAction(self._new_action)
         self._open_action = QAction("Open Project…", self)
         self._open_action.setShortcut(QKeySequence.StandardKey.Open)
         self._open_action.triggered.connect(self._on_open)
         menu.addAction(self._open_action)
-        self._save_action = QAction("Save Project…", self)
+        menu.addSeparator()
+        self._save_action = QAction("Save", self)
         self._save_action.setShortcut(QKeySequence.StandardKey.Save)
         self._save_action.triggered.connect(self._on_save)
         menu.addAction(self._save_action)
+        self._save_as_action = QAction("Save As…", self)
+        self._save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self._save_as_action.triggered.connect(self._on_save_as)
+        menu.addAction(self._save_as_action)
+        menu.addSeparator()
+        self._export_action = QAction("Export…", self)
+        self._export_action.triggered.connect(self._on_export)
+        menu.addAction(self._export_action)
+
+        view_menu = self.menuBar().addMenu("&View")
+        self._fullscreen_action = QAction("Full Screen Preview", self)
+        self._fullscreen_action.setShortcut(QKeySequence("F11"))
+        self._fullscreen_action.setEnabled(False)
+        self._fullscreen_action.triggered.connect(self._on_fullscreen_preview)
+        view_menu.addAction(self._fullscreen_action)
+
+        help_menu = self.menuBar().addMenu("&Help")
+        self._about_action = QAction("About EklipsComposer", self)
+        # AboutRole relocates this item into the macOS application menu
+        # (the menu named after the app). Empty Help is then hidden.
+        self._about_action.setMenuRole(QAction.MenuRole.AboutRole)
+        self._about_action.triggered.connect(self._on_about)
+        help_menu.addAction(self._about_action)
+
+    def _on_about(self) -> None:
+        """Show app credits, version, and the GitHub repository link."""
+        show_about_dialog(self)
+
+    def _on_fullscreen_preview(self) -> None:
+        """Show (or dismiss) an immersive view of the current composite."""
+        if self._fullscreen is not None and self._fullscreen.isVisible():
+            minimized = bool(
+                self._fullscreen.windowState() & Qt.WindowState.WindowMinimized
+            )
+            if minimized:
+                self._fullscreen.present()
+                return
+            self._fullscreen.close()
+            return
+        preview = self.view_model.state.preview_bgr
+        if preview is None:
+            return
+        if self._fullscreen is None:
+            self._fullscreen = FullscreenPreview(self)
+        self._fullscreen.set_preview(preview, fit=False)  # type: ignore[arg-type]
+        self._fullscreen.present()
+
+    def _on_new(self) -> None:
+        if self._import_busy():
+            return
+        if not self.view_model.state.images:
+            return
+        if not self._offer_save_before("new"):
+            return
+        self.view_model.dispatch(ClearImages())
 
     def _on_open(self) -> None:
         if self._import_busy():
@@ -351,7 +575,7 @@ class ScreenView(QMainWindow):
             self,
             "Open project",
             "",
-            f"VulturEklips project (*{PROJECT_SUFFIX})",
+            f"EklipsComposer project (*{PROJECT_SUFFIX})",
         )
         if not path:
             return
@@ -360,22 +584,19 @@ class ScreenView(QMainWindow):
     def _on_save(self) -> None:
         if self._import_busy():
             return
+        path = self.view_model.state.last_project_path
+        if path is None or not self.view_model.state.images:
+            return
+        self.view_model.dispatch(SaveProject(path))
+
+    def _on_save_as(self) -> None:
+        if self._import_busy():
+            return
         if not self.view_model.state.images:
             return
-        suggested = "composition.vlt"
-        if self.view_model.state.last_project_path is not None:
-            suggested = str(self.view_model.state.last_project_path)
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save project",
-            suggested,
-            f"VulturEklips project (*{PROJECT_SUFFIX})",
-        )
-        if not path:
+        out = self._choose_save_path()
+        if out is None:
             return
-        out = Path(path)
-        if out.suffix.lower() != PROJECT_SUFFIX:
-            out = out.with_suffix(PROJECT_SUFFIX)
         self.view_model.dispatch(SaveProject(out))
 
     def open_project_from_os(self, path: Path | str) -> None:
@@ -393,7 +614,10 @@ class ScreenView(QMainWindow):
                 f"File not found:\n{path}",
             )
             return
-        if self.view_model.state.images:
+        if self.view_model.state.dirty:
+            if not self._offer_save_before("open", open_path=path):
+                return
+        elif self.view_model.state.images:
             answer = QMessageBox.question(
                 self,
                 "Open project",

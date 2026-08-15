@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import tempfile
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -12,8 +13,11 @@ from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 from eclipse_compositor.cv.video import is_supported_video
+from eclipse_compositor.project.domain.models import ProjectBlueprint
 from eclipse_compositor.ui.actions import (
     ClearImages,
+    BlockingJobCancelled,
+    CancelJob,
     ExportComposite,
     ExportFailed,
     ExportFinished,
@@ -52,6 +56,10 @@ from eclipse_compositor.ui.actions import (
     UpdateMaskEnabled,
     UpdateMaskFeather,
     UpdateMaskSize,
+    UpdateMarginGlobal,
+    UpdateMarginLinked,
+    UpdateMarginX,
+    UpdateMarginY,
     UpdateSaturation,
     UpdateSpacing,
     UpdateTemperature,
@@ -66,7 +74,10 @@ from eclipse_compositor.ui.state import (
     DEFAULT_MAX_RESOLUTION,
     DEFAULT_SATURATION,
     DEFAULT_TEMPERATURE,
+    MAX_MARGIN,
+    MIN_MARGIN,
     MIN_RESOLUTION,
+    BlockingJob,
     JobStatus,
     ScreenState,
     SidebarTab,
@@ -104,6 +115,8 @@ class ScreenViewModel(QObject):
         self._thumb_tmpdir: tempfile.TemporaryDirectory[str] | None = None
         self._project_tmpdir: tempfile.TemporaryDirectory[str] | None = None
         self._open_staging: tempfile.TemporaryDirectory[str] | None = None
+        self._clean_blueprint: ProjectBlueprint | None = None
+        self._job_cancel: threading.Event | None = None
         self._preview_debounce = QTimer(self)
         self._preview_debounce.setSingleShot(True)
         self._preview_debounce.setInterval(180)
@@ -148,6 +161,9 @@ class ScreenViewModel(QObject):
             lambda path, skipped: self.dispatch(ExportFinished(Path(path), skipped))
         )
         self._export_signals.failed.connect(lambda m: self.dispatch(ExportFailed(m)))
+        self._export_signals.cancelled.connect(
+            lambda token: self.dispatch(BlockingJobCancelled(token))
+        )
 
         self._save_signals.progress.connect(
             lambda p, m: self.dispatch(SaveProjectProgress(p, m))
@@ -156,6 +172,9 @@ class ScreenViewModel(QObject):
             lambda path: self.dispatch(SaveProjectFinished(Path(path)))
         )
         self._save_signals.failed.connect(lambda m: self.dispatch(SaveProjectFailed(m)))
+        self._save_signals.cancelled.connect(
+            lambda token: self.dispatch(BlockingJobCancelled(token))
+        )
 
         self._open_signals.progress.connect(
             lambda p, m: self.dispatch(OpenProjectProgress(p, m))
@@ -168,14 +187,38 @@ class ScreenViewModel(QObject):
                 OpenProjectFailed(m, self._state._proxy_generation)
             )
         )
+        self._open_signals.cancelled.connect(
+            lambda token: self.dispatch(BlockingJobCancelled(token))
+        )
 
     @property
     def state(self) -> ScreenState:
         return self._state
 
+    def _is_dirty(self, state: ScreenState) -> bool:
+        """True when frames exist and they differ from the last opened/saved project."""
+        if not state.images:
+            return False
+        if self._clean_blueprint is None:
+            return True
+        return blueprint_from_state(state) != self._clean_blueprint
+
     def _emit(self, new_state: ScreenState) -> None:
+        dirty = self._is_dirty(new_state)
+        if new_state.dirty != dirty:
+            new_state = replace(new_state, dirty=dirty)
         self._state = new_state
         self.state_changed.emit(new_state)
+
+    def _without_blocking_job(self, state: ScreenState, **changes: object) -> ScreenState:
+        """Copy *state* with the lock overlay cleared, plus any extra fields."""
+        return replace(
+            state,
+            blocking_job=None,
+            blocking_job_path=None,
+            blocking_job_cancelling=False,
+            **changes,  # type: ignore[arg-type]
+        )
 
     def _with_selected_frame(
         self,
@@ -216,6 +259,7 @@ class ScreenViewModel(QObject):
                 self._clear_thumb_tmpdir()
                 self._clear_project_tmpdir()
                 self._clear_open_staging()
+                self._clean_blueprint = None
                 self._emit(
                     replace(
                         self._state,
@@ -395,6 +439,58 @@ class ScreenViewModel(QObject):
                 )
                 self._schedule_preview()
 
+            case UpdateMarginLinked(value=value):
+                linked = bool(value)
+                if linked == self._state.margin_linked:
+                    return
+                if linked:
+                    self._emit(
+                        replace(
+                            self._state,
+                            margin_linked=True,
+                            margin_y=self._state.margin_x,
+                        )
+                    )
+                    self._schedule_preview()
+                else:
+                    self._emit(replace(self._state, margin_linked=False))
+
+            case UpdateMarginGlobal(value=value):
+                margin = max(MIN_MARGIN, min(MAX_MARGIN, int(value)))
+                self._emit(
+                    replace(
+                        self._state,
+                        margin_linked=True,
+                        margin_x=margin,
+                        margin_y=margin,
+                    )
+                )
+                self._schedule_preview()
+
+            case UpdateMarginX(value=value):
+                margin = max(MIN_MARGIN, min(MAX_MARGIN, int(value)))
+                if self._state.margin_linked:
+                    self._emit(
+                        replace(
+                            self._state, margin_x=margin, margin_y=margin
+                        )
+                    )
+                else:
+                    self._emit(replace(self._state, margin_x=margin))
+                self._schedule_preview()
+
+            case UpdateMarginY(value=value):
+                margin = max(MIN_MARGIN, min(MAX_MARGIN, int(value)))
+                if self._state.margin_linked:
+                    self._emit(
+                        replace(
+                            self._state, margin_x=margin, margin_y=margin
+                        )
+                    )
+                else:
+                    self._emit(replace(self._state, margin_y=margin))
+                self._schedule_preview()
+
             case RequestPreview():
                 self._run_preview()
 
@@ -412,6 +508,40 @@ class ScreenViewModel(QObject):
                 if self._io_busy():
                     return
                 self._start_open(Path(path))
+
+            case CancelJob():
+                if (
+                    self._state.blocking_job is None
+                    or self._state.blocking_job_cancelling
+                    or self._job_cancel is None
+                ):
+                    return
+                self._job_cancel.set()
+                self._emit(
+                    replace(
+                        self._state,
+                        blocking_job_cancelling=True,
+                        status_message="Cancelling…",
+                    )
+                )
+
+            case BlockingJobCancelled(token=token):
+                if token is not self._job_cancel:
+                    return
+                was_open = self._state.blocking_job == BlockingJob.OPEN
+                self._job_cancel = None
+                if was_open:
+                    self._clear_open_staging()
+                self._emit(
+                    self._without_blocking_job(
+                        self._state,
+                        import_status=JobStatus.IDLE,
+                        export_status=JobStatus.IDLE,
+                        progress=0.0,
+                        status_message="Cancelled.",
+                        error_message=None,
+                    )
+                )
 
             case ImportProgress(progress=progress, message=message):
                 self._emit(
@@ -534,8 +664,9 @@ class ScreenViewModel(QObject):
                 skip_note = (
                     f" Skipped {len(skipped)} frame(s)." if skipped else ""
                 )
+                self._job_cancel = None
                 self._emit(
-                    replace(
+                    self._without_blocking_job(
                         self._state,
                         export_status=JobStatus.IDLE,
                         last_export_path=output_path,
@@ -546,8 +677,9 @@ class ScreenViewModel(QObject):
                 )
 
             case ExportFailed(message=message):
+                self._job_cancel = None
                 self._emit(
-                    replace(
+                    self._without_blocking_job(
                         self._state,
                         export_status=JobStatus.IDLE,
                         error_message=message,
@@ -566,20 +698,22 @@ class ScreenViewModel(QObject):
                 )
 
             case SaveProjectFinished(output_path=output_path):
-                self._emit(
-                    replace(
-                        self._state,
-                        export_status=JobStatus.IDLE,
-                        last_project_path=output_path,
-                        progress=1.0,
-                        status_message=f"Saved project to {output_path}.",
-                        error_message=None,
-                    )
+                saved = self._without_blocking_job(
+                    self._state,
+                    export_status=JobStatus.IDLE,
+                    last_project_path=output_path,
+                    progress=1.0,
+                    status_message=f"Saved project to {output_path}.",
+                    error_message=None,
                 )
+                self._job_cancel = None
+                self._clean_blueprint = blueprint_from_state(saved)
+                self._emit(saved)
 
             case SaveProjectFailed(message=message):
+                self._job_cancel = None
                 self._emit(
-                    replace(
+                    self._without_blocking_job(
                         self._state,
                         export_status=JobStatus.IDLE,
                         error_message=message,
@@ -602,8 +736,9 @@ class ScreenViewModel(QObject):
                     return
                 if not isinstance(result, ProjectOpenResult):
                     self._clear_open_staging()
+                    self._job_cancel = None
                     self._emit(
-                        replace(
+                        self._without_blocking_job(
                             self._state,
                             import_status=JobStatus.IDLE,
                             error_message="Open returned an unexpected result.",
@@ -617,8 +752,9 @@ class ScreenViewModel(QObject):
                 if generation != self._state._proxy_generation:
                     return
                 self._clear_open_staging()
+                self._job_cancel = None
                 self._emit(
-                    replace(
+                    self._without_blocking_job(
                         self._state,
                         import_status=JobStatus.IDLE,
                         error_message=message,
@@ -676,7 +812,7 @@ class ScreenViewModel(QObject):
         """Return the directory used to persist extracted video stills."""
         if self._video_tmpdir is None:
             self._video_tmpdir = tempfile.TemporaryDirectory(
-                prefix="vultureklips_frames_"
+                prefix="eklipscomposer_frames_"
             )
         return Path(self._video_tmpdir.name)
 
@@ -684,7 +820,7 @@ class ScreenViewModel(QObject):
         """Return the directory used to persist gallery list thumbnails."""
         if self._thumb_tmpdir is None:
             self._thumb_tmpdir = tempfile.TemporaryDirectory(
-                prefix="vultureklips_thumbs_"
+                prefix="eklipscomposer_thumbs_"
             )
         return Path(self._thumb_tmpdir.name)
 
@@ -732,10 +868,15 @@ class ScreenViewModel(QObject):
         if not self._state.images:
             self.dispatch(SaveProjectFailed("No frames to save."))
             return
+        cancel = threading.Event()
+        self._job_cancel = cancel
         self._emit(
             replace(
                 self._state,
                 export_status=JobStatus.RUNNING,
+                blocking_job=BlockingJob.SAVE,
+                blocking_job_path=output_path,
+                blocking_job_cancelling=False,
                 progress=0.0,
                 status_message="Saving project…",
                 error_message=None,
@@ -745,6 +886,7 @@ class ScreenViewModel(QObject):
             blueprint_from_state(self._state),
             output_path,
             self._save_signals,
+            cancel,
         )
         self._pool.start(worker)
 
@@ -752,12 +894,17 @@ class ScreenViewModel(QObject):
         gen = self._state._proxy_generation + 1
         self._clear_open_staging()
         self._open_staging = tempfile.TemporaryDirectory(
-            prefix="vultureklips_project_"
+            prefix="eklipscomposer_project_"
         )
+        cancel = threading.Event()
+        self._job_cancel = cancel
         self._emit(
             replace(
                 self._state,
                 import_status=JobStatus.RUNNING,
+                blocking_job=BlockingJob.OPEN,
+                blocking_job_path=archive_path,
+                blocking_job_cancelling=False,
                 progress=0.0,
                 status_message="Opening project…",
                 error_message=None,
@@ -769,6 +916,7 @@ class ScreenViewModel(QObject):
             Path(self._open_staging.name),
             gen,
             self._open_signals,
+            cancel,
         )
         self._pool.start(worker)
 
@@ -792,7 +940,10 @@ class ScreenViewModel(QObject):
             preview_generation=self._state._preview_generation + 1,
         )
         selected = restored.selected_index
-        self._emit(self._with_selected_frame(restored, selected))
+        adopted = self._with_selected_frame(restored, selected)
+        self._job_cancel = None
+        self._clean_blueprint = blueprint_from_state(adopted)
+        self._emit(adopted)
         self._schedule_preview()
 
     def _run_preview(self) -> None:
@@ -840,16 +991,25 @@ class ScreenViewModel(QObject):
         if not paths:
             self.dispatch(ExportFailed("No frames enabled for export."))
             return
+        cancel = threading.Event()
+        self._job_cancel = cancel
         self._emit(
             replace(
                 self._state,
                 export_status=JobStatus.RUNNING,
+                blocking_job=BlockingJob.EXPORT,
+                blocking_job_path=output_path,
+                blocking_job_cancelling=False,
                 progress=0.0,
                 status_message="Exporting…",
                 error_message=None,
             )
         )
         worker = ExportWorker(
-            paths, self._compose_params(), output_path, self._export_signals
+            paths,
+            self._compose_params(),
+            output_path,
+            self._export_signals,
+            cancel,
         )
         self._pool.start(worker)

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the macOS .app into repo/output/VulturEklips.app
+# Build the macOS .app into repo/output/EklipsComposer.app
 set -eu
 
 if [ "$(uname -s)" != "Darwin" ]; then
@@ -29,18 +29,18 @@ chmod +x "$ROOT/build_scripts/build_ffmpeg.sh"
 echo "Building macOS icon…"
 "$PYTHON" "$ROOT/build_scripts/build_icons.py"
 
-echo "Packaging VulturEklips.app…"
+echo "Packaging EklipsComposer.app…"
 "$PYTHON" -m PyInstaller \
   --noconfirm \
   --clean \
   --distpath "$ROOT/output" \
   --workpath "$ROOT/output/work" \
-  "$ROOT/vultureklips.spec"
+  "$ROOT/eklipscomposer.spec"
 
 # Leave only the runnable bundle in output/.
-rm -rf "$ROOT/output/work" "$ROOT/output/VulturEklips"
+rm -rf "$ROOT/output/work" "$ROOT/output/EklipsComposer"
 
-APP="$ROOT/output/VulturEklips.app"
+APP="$ROOT/output/EklipsComposer.app"
 if [ ! -d "$APP" ]; then
   echo "Build finished but $APP was not created." >&2
   exit 1

@@ -11,7 +11,7 @@ ProgressCallback = Callable[[float, str], None]
 
 
 class ProjectRepository(Protocol):
-    """Read and write VulturEklips project archives.
+    """Read and write EklipsComposer project archives.
 
     Implementations live in the data layer. The domain never depends on zip
     or JSON details.

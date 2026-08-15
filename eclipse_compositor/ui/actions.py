@@ -144,6 +144,28 @@ class UpdateMaskFeather(ScreenAction):
 
 
 @dataclass(frozen=True)
+class UpdateMarginLinked(ScreenAction):
+    value: bool
+
+
+@dataclass(frozen=True)
+class UpdateMarginX(ScreenAction):
+    value: int
+
+
+@dataclass(frozen=True)
+class UpdateMarginY(ScreenAction):
+    value: int
+
+
+@dataclass(frozen=True)
+class UpdateMarginGlobal(ScreenAction):
+    """Set horizontal and vertical canvas margins to the same value."""
+
+    value: int
+
+
+@dataclass(frozen=True)
 class RequestPreview(ScreenAction):
     """Ask the ViewModel to (re)render the proxy composite."""
 
@@ -167,6 +189,11 @@ class OpenProject(ScreenAction):
     """Replace the current composition with a saved ``.vlt`` project."""
 
     path: Path
+
+
+@dataclass(frozen=True)
+class CancelJob(ScreenAction):
+    """Request cooperative cancel of the current save / load / export."""
 
 
 # --- Worker → ViewModel result actions ---
@@ -260,3 +287,10 @@ class OpenProjectFinished(ScreenAction):
 class OpenProjectFailed(ScreenAction):
     message: str
     generation: int
+
+
+@dataclass(frozen=True)
+class BlockingJobCancelled(ScreenAction):
+    """Worker acknowledged a cancel request."""
+
+    token: object  # threading.Event identity for the job that stopped

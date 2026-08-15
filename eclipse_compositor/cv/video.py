@@ -1,7 +1,7 @@
 """Video probing and frame extraction via ffmpeg.
 
 A decode-only ffmpeg is bundled with the packaged app. Local development
-uses ``VULTUREKLIPS_FFMPEG``, ``PATH``, or an optional ``imageio-ffmpeg``
+uses ``EKLIPSCOMPOSER_FFMPEG``, ``PATH``, or an optional ``imageio-ffmpeg``
 install.
 """
 
@@ -65,13 +65,13 @@ def video_dialog_globs() -> str:
 def ffmpeg_exe() -> str:
     """Return the ffmpeg binary used for video import.
 
-    Search order: ``VULTUREKLIPS_FFMPEG``, bundled next to a frozen app,
+    Search order: ``EKLIPSCOMPOSER_FFMPEG``, bundled next to a frozen app,
     repo ``third_party/ffmpeg``, ``PATH``, optional ``imageio-ffmpeg``.
 
     Raises:
         FileNotFoundError: If no ffmpeg binary can be located.
     """
-    env = os.environ.get("VULTUREKLIPS_FFMPEG")
+    env = os.environ.get("EKLIPSCOMPOSER_FFMPEG")
     if env and Path(env).is_file():
         return env
 

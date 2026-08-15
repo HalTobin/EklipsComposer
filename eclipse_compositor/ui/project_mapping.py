@@ -29,6 +29,9 @@ def blueprint_from_state(state: ScreenState) -> ProjectBlueprint:
             threshold=state.threshold,
             grid_columns=state.grid_columns,
             grid_rows=state.grid_rows,
+            margin_x=state.margin_x,
+            margin_y=state.margin_y,
+            margin_linked=state.margin_linked,
         ),
         colorimetry=ColorimetrySettings(
             contrast=state.contrast,
@@ -93,6 +96,9 @@ def state_from_document(
         mask_enabled=mask.enabled,
         mask_size=mask.size,
         mask_feather=mask.feather,
+        margin_linked=composite.margin_linked,
+        margin_x=composite.margin_x,
+        margin_y=composite.margin_y,
         _proxy_generation=proxy_generation,
         _preview_generation=preview_generation,
     )

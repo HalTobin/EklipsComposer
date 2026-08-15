@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
-"""Build ``assets/app_icon_darwin.icns`` from the Icon Composer 1024 PNG.
+"""Build macOS Dock assets from the Icon Composer 1024 PNG.
 
-The iOS 1024 export fills the canvas. macOS Dock icons need inset artwork
-or they read larger than other apps. This scales the master to 80% and
-centers it on a transparent 1024 canvas before ``iconutil``.
+The iOS 1024 export is a full-bleed squircle. macOS Dock / Finder icons
+follow Apple's 1024pt grid, where the squircle is 824pt — otherwise the
+icon reads larger than every other app. This scales the master to 824 and
+centers it on a transparent 1024 canvas, then writes:
+
+* ``assets/app_icon_darwin.png`` — used by source checkouts via QIcon
+* ``assets/app_icon_darwin.icns`` — used by the packaged ``.app`` (macOS)
 
     python build_scripts/build_icons.py
 """
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 DARWIN_PNG = ROOT / "assets" / "app_icon_darwin-iOS-Default-1024x1024@1x.png"
+PADDED_PNG = ROOT / "assets" / "app_icon_darwin.png"
 ICNS_PATH = ROOT / "assets" / "app_icon_darwin.icns"
 
-# iOS 1024 is full-bleed; ~80% matches typical macOS Dock scale.
-_MACOS_ICON_SCALE = 0.80
+# Apple macOS icon grid: 824pt squircle on a 1024pt canvas.
 _CANVAS = 1024
+_MACOS_ICON_SIDE = 824
 
 # iconutil expects this exact filename set (1x + @2x for each point size).
 _ICONSET_SPECS: tuple[tuple[str, int], ...] = (
@@ -43,12 +48,20 @@ _ICONSET_SPECS: tuple[tuple[str, int], ...] = (
 def _padded_master(master: Path) -> Image.Image:
     """Scale the iOS 1024 art down and center it on a transparent canvas."""
     src = Image.open(master).convert("RGBA")
-    inner = max(1, int(round(_CANVAS * _MACOS_ICON_SCALE)))
-    art = src.resize((inner, inner), Image.Resampling.LANCZOS)
+    art = src.resize((_MACOS_ICON_SIDE, _MACOS_ICON_SIDE), Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", (_CANVAS, _CANVAS), (0, 0, 0, 0))
-    origin = (_CANVAS - inner) // 2
+    origin = (_CANVAS - _MACOS_ICON_SIDE) // 2
     canvas.paste(art, (origin, origin), art)
     return canvas
+
+
+def build_padded_png(master: Path = DARWIN_PNG, dest: Path = PADDED_PNG) -> Path:
+    """Write the Dock-sized 1024 PNG used by source checkouts."""
+    if not master.is_file():
+        raise FileNotFoundError(f"Missing Darwin icon master: {master}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _padded_master(master).save(dest, "PNG")
+    return dest
 
 
 def build_icns(master: Path = DARWIN_PNG, dest: Path = ICNS_PATH) -> Path:
@@ -59,9 +72,11 @@ def build_icns(master: Path = DARWIN_PNG, dest: Path = ICNS_PATH) -> Path:
         raise FileNotFoundError(f"Missing Darwin icon master: {master}")
 
     padded = _padded_master(master)
-    with tempfile.TemporaryDirectory(prefix="vultureklips-iconset-") as tmp:
-        iconset = Path(tmp) / "app_icon.iconset"
-        iconset.mkdir()
+    iconset = dest.parent / "app_icon.iconset"
+    if iconset.exists():
+        shutil.rmtree(iconset)
+    iconset.mkdir()
+    try:
         master_png = iconset / "icon_512x512@2x.png"
         padded.save(master_png, "PNG")
         for name, px in _ICONSET_SPECS:
@@ -77,13 +92,20 @@ def build_icns(master: Path = DARWIN_PNG, dest: Path = ICNS_PATH) -> Path:
             ["iconutil", "-c", "icns", "-o", str(dest), str(iconset)],
             check=True,
         )
+    finally:
+        shutil.rmtree(iconset, ignore_errors=True)
     return dest
 
 
 def main() -> int:
-    """Build ``assets/app_icon_darwin.icns`` from the Icon Composer PNG."""
-    path = build_icns()
-    print(f"Wrote {path} ({path.stat().st_size} bytes)")
+    """Build the padded macOS PNG and, on Darwin, the ``.icns``."""
+    png = build_padded_png()
+    print(f"Wrote {png} ({png.stat().st_size} bytes)")
+    if sys.platform == "darwin":
+        path = build_icns()
+        print(f"Wrote {path} ({path.stat().st_size} bytes)")
+    else:
+        print("Skipping .icns (iconutil is macOS-only)")
     return 0
 
 

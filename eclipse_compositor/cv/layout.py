@@ -263,21 +263,25 @@ def generate_positions(
 def canvas_size_from_positions(
     positions: list[tuple[float, float]],
     frame_size: int,
-    padding: int = 0,
+    margin_x: int = 0,
+    margin_y: int = 0,
 ) -> tuple[int, int]:
     """Compute canvas (width, height) that fits all placed frames.
+
+    Positive margins add a border around the bounding box. Negative margins
+    shrink the canvas so ``paste_lighten`` crops into the frames.
 
     Args:
         positions: Top-left corners from a layout function.
         frame_size: Square frame side length.
-        padding: Extra border pixels on all sides.
+        margin_x: Extra pixels on left and right (may be negative).
+        margin_y: Extra pixels on top and bottom (may be negative).
 
     Returns:
-        ``(width, height)`` in pixels.
+        ``(width, height)`` in pixels, at least 1×1.
     """
     if not positions:
-        side = max(1, padding * 2)
-        return side, side
+        return max(1, 2 * max(0, margin_x)), max(1, 2 * max(0, margin_y))
 
     xs = [p[0] for p in positions]
     ys = [p[1] for p in positions]
@@ -286,21 +290,26 @@ def canvas_size_from_positions(
     max_x = max(x + frame_size for x in xs)
     max_y = max(y + frame_size for y in ys)
 
-    width = int(np.ceil(max_x - min_x)) + 2 * padding
-    height = int(np.ceil(max_y - min_y)) + 2 * padding
+    width = int(np.ceil(max_x - min_x)) + 2 * int(margin_x)
+    height = int(np.ceil(max_y - min_y)) + 2 * int(margin_y)
     return max(1, width), max(1, height)
 
 
 def normalize_positions(
     positions: list[tuple[float, float]],
-    padding: int = 0,
+    margin_x: int = 0,
+    margin_y: int = 0,
 ) -> list[tuple[int, int]]:
-    """Shift positions so the bounding box origin is at (*padding*, *padding*)."""
+    """Shift positions so the bounding box origin is at (*margin_x*, *margin_y*).
+
+    Negative margins place frames partly outside the canvas so their edges
+    are clipped when composited.
+    """
     if not positions:
         return []
     min_x = min(p[0] for p in positions)
     min_y = min(p[1] for p in positions)
     return [
-        (int(round(x - min_x + padding)), int(round(y - min_y + padding)))
+        (int(round(x - min_x + margin_x)), int(round(y - min_y + margin_y)))
         for x, y in positions
     ]

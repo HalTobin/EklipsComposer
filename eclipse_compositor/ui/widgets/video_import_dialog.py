@@ -6,7 +6,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QLabel,
     QListWidget,
     QSpinBox,
     QVBoxLayout,
@@ -14,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from eclipse_compositor.cv.video import VideoProbe, stepped_frame_count
+from eclipse_compositor.ui.theme import HintLabel, Section, SPACE
 
 
 class VideoImportDialog(QDialog):
@@ -24,21 +24,28 @@ class VideoImportDialog(QDialog):
         self._probes = probes
         self.setWindowTitle("Import video frames")
         self.setModal(True)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(440)
 
         layout = QVBoxLayout(self)
-        summary = QLabel(_source_text(probes))
+        layout.setContentsMargins(SPACE.lg, SPACE.lg, SPACE.lg, SPACE.lg)
+        layout.setSpacing(SPACE.md)
+
+        card = Section("Video source")
+        summary = HintLabel(_source_text(probes))
         summary.setWordWrap(True)
-        layout.addWidget(summary)
+        card.add_widget(summary)
 
         if len(probes) > 1:
             listing = QListWidget()
             listing.setMaximumHeight(140)
             for probe in probes:
                 listing.addItem(f"{probe.path.name} — {_count_label(probe)}")
-            layout.addWidget(listing)
+            card.add_widget(listing)
+        layout.addWidget(card)
 
+        options = Section("Composite")
         form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
         self.step_spin = QSpinBox()
         self.step_spin.setMinimum(1)
         total = _known_total(probes)
@@ -49,24 +56,24 @@ class VideoImportDialog(QDialog):
             "2 enables every second frame, and so on."
         )
         form.addRow("Frame step", self.step_spin)
-        layout.addLayout(form)
+        options.add_layout(form)
 
-        self._enabled_label = QLabel()
-        self._enabled_label.setWordWrap(True)
-        layout.addWidget(self._enabled_label)
+        self._enabled_label = HintLabel()
+        options.add_widget(self._enabled_label)
         self.step_spin.valueChanged.connect(self._refresh_enabled_label)
         self._refresh_enabled_label()
 
         if total is not None and total >= 500:
-            note = QLabel("Large imports may take a while and use extra disk space.")
-            note.setStyleSheet("color: #888;")
-            note.setWordWrap(True)
-            layout.addWidget(note)
+            options.add_widget(
+                HintLabel("Large imports may take a while and use extra disk space.")
+            )
+        layout.addWidget(options)
 
         buttons = QDialogButtonBox()
         import_btn = buttons.addButton("Import", QDialogButtonBox.ButtonRole.AcceptRole)
         buttons.addButton(QDialogButtonBox.StandardButton.Cancel)
         import_btn.setDefault(True)
+        import_btn.setProperty("variant", "primary")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

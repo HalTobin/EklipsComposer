@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Double-click this file in Finder to launch VulturEklips.
+# Double-click this file in Finder to launch EklipsComposer.
 set -euo pipefail
 
 cd "$(dirname "$0")"

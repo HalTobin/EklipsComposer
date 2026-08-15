@@ -23,6 +23,11 @@ DEFAULT_TEMPERATURE: float = 0.0
 DEFAULT_MASK_SIZE: float = 0.90
 DEFAULT_MASK_FEATHER: float = 0.20
 
+# Canvas margin around the laid-out frames (px per side). Negative crops in.
+DEFAULT_MARGIN: int = 40
+MIN_MARGIN: int = -4000
+MAX_MARGIN: int = 4000
+
 
 class SidebarTab(str, Enum):
     """Active page in the sidebar parameter tabs."""
@@ -30,6 +35,7 @@ class SidebarTab(str, Enum):
     COMPOSITE = "composite"
     COLORIMETRY = "colorimetry"
     MASK = "mask"
+    CANVAS = "canvas"
 
 
 class JobStatus(str, Enum):
@@ -38,6 +44,14 @@ class JobStatus(str, Enum):
     IDLE = "idle"
     RUNNING = "running"
     ERROR = "error"
+
+
+class BlockingJob(str, Enum):
+    """Long-running file job that locks the editor behind an overlay."""
+
+    SAVE = "save"
+    OPEN = "open"
+    EXPORT = "export"
 
 
 @dataclass(frozen=True)
@@ -78,6 +92,10 @@ class ScreenState:
     progress: float = 0.0  # 0–1
     last_export_path: Path | None = None
     last_project_path: Path | None = None
+    dirty: bool = False  # unsaved project, or edits since last open/save
+    blocking_job: BlockingJob | None = None
+    blocking_job_path: Path | None = None
+    blocking_job_cancelling: bool = False
     error_message: str | None = None
     selected_index: int | None = None
     proxy_ready: bool = False
@@ -91,6 +109,9 @@ class ScreenState:
     mask_enabled: bool = False
     mask_size: float = DEFAULT_MASK_SIZE
     mask_feather: float = DEFAULT_MASK_FEATHER
+    margin_linked: bool = True
+    margin_x: int = DEFAULT_MARGIN
+    margin_y: int = DEFAULT_MARGIN
 
     # Internal bookkeeping (not rendered directly)
     _proxy_generation: int = 0

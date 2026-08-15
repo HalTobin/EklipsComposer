@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""VulturEklips entry point."""
+"""EklipsComposer entry point."""
 
 from __future__ import annotations
 
@@ -8,18 +8,18 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, Signal
-from PySide6.QtGui import QFileOpenEvent, QIcon
+from PySide6.QtGui import QFileOpenEvent
 from PySide6.QtWidgets import QApplication
 
+from eclipse_compositor import APP_NAME, __version__
 from eclipse_compositor.project import is_project_file
 from eclipse_compositor.resources import app_icon_path
+from eclipse_compositor.ui.theme import apply_theme, qicon_from_path
 from eclipse_compositor.ui.view import ScreenView
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
 
-_APP_NAME = "VulturEklips"
 
-
-class VulturEklipsApplication(QApplication):
+class EklipsComposerApplication(QApplication):
     """QApplication that turns macOS Finder / argv file opens into a signal.
 
     Double-clicking a ``.vlt`` sends a ``QFileOpenEvent`` (often *before* the
@@ -41,7 +41,7 @@ class VulturEklipsApplication(QApplication):
         return super().event(event)
 
     def offer_path(self, path: str) -> None:
-        """Queue or emit *path* if it is a VulturEklips project file."""
+        """Queue or emit *path* if it is a EklipsComposer project file."""
         if not path or not is_project_file(path):
             return
         if not self._window_ready:
@@ -144,16 +144,18 @@ def main() -> int:
         level=logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
     )
-    _macos_set_app_menu_name(_APP_NAME)
-    app = VulturEklipsApplication(sys.argv)
-    app.setApplicationName(_APP_NAME)
-    app.setApplicationDisplayName(_APP_NAME)
-    app.setOrganizationName(_APP_NAME)
-    app.setDesktopFileName(_APP_NAME)
+    _macos_set_app_menu_name(APP_NAME)
+    app = EklipsComposerApplication(sys.argv)
+    app.setApplicationName(APP_NAME)
+    app.setApplicationDisplayName(APP_NAME)
+    app.setApplicationVersion(__version__)
+    app.setOrganizationName(APP_NAME)
+    app.setDesktopFileName(APP_NAME)
 
-    icon_file = app_icon_path()
-    if icon_file.is_file():
-        app.setWindowIcon(QIcon(str(icon_file)))
+    icon = qicon_from_path(app_icon_path())
+    if not icon.isNull():
+        app.setWindowIcon(icon)
+    apply_theme(app)
 
     view_model = ScreenViewModel()
     window = ScreenView(view_model)

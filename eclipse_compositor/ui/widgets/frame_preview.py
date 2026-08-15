@@ -4,15 +4,23 @@ from __future__ import annotations
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QPaintEvent, QPixmap, QResizeEvent
-from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtGui import (
+    QColor,
+    QPainter,
+    QPainterPath,
+    QPaintEvent,
+    QPixmap,
+    QResizeEvent,
+)
+from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from eclipse_compositor.ui.state import ScreenState
+from eclipse_compositor.ui.theme import COLOR, CaptionLabel
 from eclipse_compositor.ui.widgets.viewport import bgr_to_qimage
 
 
 class _FittedImage(QWidget):
-    """Paints a pixmap letterboxed into the available area."""
+    """Paints a pixmap letterboxed into a rounded well."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -22,7 +30,6 @@ class _FittedImage(QWidget):
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
-        self.setStyleSheet("background-color: #111;")
 
     def set_placeholder(self, text: str) -> None:
         """Set the empty-state message."""
@@ -37,9 +44,14 @@ class _FittedImage(QWidget):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: ARG002
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#111111"))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect().adjusted(0, 0, -1, -1)
+        path = QPainterPath()
+        path.addRoundedRect(rect, 8, 8)
+        painter.setClipPath(path)
+        painter.fillPath(path, QColor(COLOR.bg_sunken))
         if self._pixmap.isNull():
-            painter.setPen(QColor("#888888"))
+            painter.setPen(QColor(COLOR.text_faint))
             painter.drawText(
                 self.rect(),
                 int(Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap),
@@ -63,16 +75,15 @@ class FramePreview(QWidget):
         super().__init__(parent)
         self._last_image_ref: object | None = None
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 6, 0, 0)
-        header = QLabel("Selected frame")
-        header.setStyleSheet("font-weight: 600;")
+        root.setContentsMargins(0, 8, 0, 0)
+        root.setSpacing(6)
+        header = CaptionLabel("Selected frame")
+        header.setObjectName("sectionTitle")
         root.addWidget(header)
         self._canvas = _FittedImage()
         root.addWidget(self._canvas, stretch=1)
-        self._caption = QLabel()
+        self._caption = CaptionLabel()
         self._caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._caption.setWordWrap(True)
-        self._caption.setStyleSheet("color: #aaa; font-size: 11px;")
         root.addWidget(self._caption)
         self.setMinimumHeight(120)
 

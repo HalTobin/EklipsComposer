@@ -6,7 +6,7 @@ class ProjectError(Exception):
 
 
 class ProjectFormatError(ProjectError):
-    """The archive is not a valid VulturEklips project."""
+    """The archive is not a valid EklipsComposer project."""
 
 
 class ProjectIoError(ProjectError):

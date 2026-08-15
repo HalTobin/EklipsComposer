@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-FORMAT_ID: str = "vultureklips"
+FORMAT_ID: str = "eklips-composer"
 FORMAT_VERSION: int = 1
 PROJECT_SUFFIX: str = ".vlt"
 COMPOSITION_FILENAME: str = "composition.json"
@@ -18,7 +18,7 @@ ALLOWED_DIRECTIONS: frozenset[str] = frozenset(
 
 
 def is_project_file(path: Path | str) -> bool:
-    """Return True if *path* has the VulturEklips project suffix."""
+    """Return True if *path* has the EklipsComposer project suffix."""
     return Path(path).suffix.lower() == PROJECT_SUFFIX
 
 
@@ -34,6 +34,9 @@ class CompositeSettings:
     threshold: int
     grid_columns: int
     grid_rows: int
+    margin_x: int = 40
+    margin_y: int = 40
+    margin_linked: bool = True
 
 
 @dataclass(frozen=True)

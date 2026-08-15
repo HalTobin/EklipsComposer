@@ -33,6 +33,9 @@ def encode_composition(document: ProjectDocument) -> str:
             "threshold": document.composite.threshold,
             "grid_columns": document.composite.grid_columns,
             "grid_rows": document.composite.grid_rows,
+            "margin_x": document.composite.margin_x,
+            "margin_y": document.composite.margin_y,
+            "margin_linked": document.composite.margin_linked,
         },
         "colorimetry": {
             "contrast": document.colorimetry.contrast,
@@ -127,6 +130,18 @@ def _as_str(value: Any, name: str) -> str:
     return value
 
 
+def _optional_int(data: dict[str, Any], key: str, default: int, name: str) -> int:
+    if key not in data or data[key] is None:
+        return default
+    return _as_int(data[key], name)
+
+
+def _optional_bool(data: dict[str, Any], key: str, default: bool, name: str) -> bool:
+    if key not in data or data[key] is None:
+        return default
+    return _as_bool(data[key], name)
+
+
 def _parse_composite(value: Any) -> CompositeSettings:
     data = _require_dict(value, "composite")
     layout = _as_str(data.get("layout"), "composite.layout")
@@ -144,6 +159,11 @@ def _parse_composite(value: Any) -> CompositeSettings:
         threshold=_as_int(data.get("threshold"), "composite.threshold"),
         grid_columns=_as_int(data.get("grid_columns"), "composite.grid_columns"),
         grid_rows=_as_int(data.get("grid_rows"), "composite.grid_rows"),
+        margin_x=_optional_int(data, "margin_x", 40, "composite.margin_x"),
+        margin_y=_optional_int(data, "margin_y", 40, "composite.margin_y"),
+        margin_linked=_optional_bool(
+            data, "margin_linked", True, "composite.margin_linked"
+        ),
     )
 
 

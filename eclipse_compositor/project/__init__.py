@@ -1,4 +1,4 @@
-"""Project persistence: save and open VulturEklips ``.vlt`` archives."""
+"""Project persistence: save and open EklipsComposer ``.vlt`` archives."""
 
 from eclipse_compositor.project.data.zip_store import ZipProjectRepository
 from eclipse_compositor.project.domain.errors import (

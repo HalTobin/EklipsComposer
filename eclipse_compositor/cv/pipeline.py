@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -49,7 +50,9 @@ class ComposeParams:
     arc_angle: float = 120.0
     direction: LayoutDirection = LayoutDirection.HORIZONTAL
     threshold: int = 180
-    padding: int = 40
+    # Extra pixels around the layout; negative values crop into the frames.
+    margin_x: int = 40
+    margin_y: int = 40
     # Expand crop so corona / diamond ring is not clipped (× enclosing diameter).
     radius_margin: float = 2.6
     grid_columns: int = 3
@@ -146,9 +149,14 @@ def compose_frames(
         grid_columns=params.grid_columns,
         grid_rows=params.grid_rows,
     )
-    positions = normalize_positions(raw_positions, padding=params.padding)
+    positions = normalize_positions(
+        raw_positions, margin_x=params.margin_x, margin_y=params.margin_y
+    )
     width, height = canvas_size_from_positions(
-        raw_positions, size, padding=params.padding
+        raw_positions,
+        size,
+        margin_x=params.margin_x,
+        margin_y=params.margin_y,
     )
     canvas = create_canvas(width, height)
     alpha = (
@@ -176,6 +184,9 @@ def compose_sequence(
     paths: list[Path],
     params: ComposeParams,
     images: dict[Path, np.ndarray] | None = None,
+    *,
+    on_progress: Callable[[float, str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[np.ndarray, list[Path], list[Path]]:
     """Full pipeline over an ordered list of source paths.
 
@@ -186,6 +197,8 @@ def compose_sequence(
         paths: Image paths in composite order (enabled frames only).
         params: Detection and layout parameters.
         images: Optional path→BGR cache (proxies or full-res).
+        on_progress: Optional ``(fraction, message)`` callback.
+        should_cancel: When this returns True, raise ``InterruptedError``.
 
     Returns:
         Tuple of ``(composite, used_paths, skipped_paths)``.
@@ -193,8 +206,13 @@ def compose_sequence(
     used: list[Path] = []
     skipped: list[Path] = []
     loaded: list[tuple[Path, np.ndarray, DiscDetection]] = []
+    total = max(1, len(paths))
 
-    for path in paths:
+    for i, path in enumerate(paths):
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("Cancelled")
+        if on_progress is not None:
+            on_progress(i / total, f"Processing {path.name}…")
         try:
             bgr = images[path] if images and path in images else load_image_bgr(path)
         except FileNotFoundError as exc:
@@ -215,6 +233,9 @@ def compose_sequence(
     if not loaded:
         return create_canvas(1, 1), used, skipped
 
+    if should_cancel is not None and should_cancel():
+        raise InterruptedError("Cancelled")
+
     crop_size = effective_crop_size([d for _, _, d in loaded], params)
     if crop_size > params.crop_size:
         logger.info(
@@ -225,9 +246,13 @@ def compose_sequence(
 
     frames: list[ProcessedFrame] = []
     for path, bgr, detection in loaded:
+        if should_cancel is not None and should_cancel():
+            raise InterruptedError("Cancelled")
         crop = crop_around_center(bgr, detection.center, crop_size)
         frames.append(ProcessedFrame(path=path, crop=crop, detection=detection))
 
+    if on_progress is not None:
+        on_progress(0.92, "Compositing…")
     # Layout must use the effective crop size, not the pre-expansion slider value.
     layout_params = replace(params, crop_size=crop_size)
     composite = compose_frames(frames, layout_params, frame_size=crop_size)
@@ -238,6 +263,9 @@ def export_composite(
     paths: list[Path],
     params: ComposeParams,
     output_path: Path | str,
+    *,
+    on_progress: Callable[[float, str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[np.ndarray, list[Path], list[Path]]:
     """Run the full-resolution pipeline and write the result to disk.
 
@@ -245,10 +273,27 @@ def export_composite(
         paths: Enabled source paths in order.
         params: Compose parameters.
         output_path: Destination file (.jpg / .tif / .png).
+        on_progress: Optional ``(fraction, message)`` callback.
+        should_cancel: When this returns True, raise ``InterruptedError``.
 
     Returns:
         Same tuple as ``compose_sequence``.
     """
-    composite, used, skipped = compose_sequence(paths, params)
-    save_image(str(output_path), composite)
+    dest = Path(output_path)
+
+    def _progress(fraction: float, message: str) -> None:
+        if on_progress is not None:
+            on_progress(fraction, message)
+
+    composite, used, skipped = compose_sequence(
+        paths,
+        params,
+        on_progress=lambda p, m: _progress(0.9 * p, m),
+        should_cancel=should_cancel,
+    )
+    if should_cancel is not None and should_cancel():
+        raise InterruptedError("Cancelled")
+    _progress(0.94, f"Writing {dest.name}…")
+    save_image(str(dest), composite)
+    _progress(1.0, f"Saved {dest.name}")
     return composite, used, skipped

@@ -81,6 +81,9 @@ class ZipProjectRepository:
                 zf.writestr(COMPOSITION_FILENAME, encode_composition(document))
             tmp_path.replace(dest)
             _report(progress, 1.0, f"Saved {dest.name}")
+        except InterruptedError:
+            _unlink_quiet(tmp_path)
+            raise
         except (ProjectFormatError, ProjectIoError):
             _unlink_quiet(tmp_path)
             raise
@@ -121,7 +124,7 @@ class ZipProjectRepository:
         except ProjectFormatError:
             raise
         except zipfile.BadZipFile as exc:
-            raise ProjectFormatError("File is not a valid VulturEklips project.") from exc
+            raise ProjectFormatError("File is not a valid EklipsComposer project.") from exc
         except OSError as exc:
             raise ProjectIoError(str(exc)) from exc
         return LoadedProject(

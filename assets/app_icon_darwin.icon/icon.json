@@ -19,11 +19,8 @@
     {
       "layers" : [
         {
-          "blend-mode" : "normal",
-          "fill" : "none",
-          "hidden" : false,
-          "image-name" : "app_icon.svg",
-          "name" : "app_icon",
+          "image-name" : "app_icon 2.svg",
+          "name" : "app_icon 2",
           "position" : {
             "scale" : 2,
             "translation-in-points" : [

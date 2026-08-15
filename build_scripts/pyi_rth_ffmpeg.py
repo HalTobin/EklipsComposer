@@ -27,4 +27,4 @@ def _bundled_ffmpeg() -> str | None:
 
 _exe = _bundled_ffmpeg()
 if _exe:
-    os.environ.setdefault("VULTUREKLIPS_FFMPEG", _exe)
+    os.environ.setdefault("EKLIPSCOMPOSER_FFMPEG", _exe)

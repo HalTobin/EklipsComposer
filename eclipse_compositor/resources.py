@@ -5,6 +5,13 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+_MARK_FILENAMES: tuple[str, ...] = (
+    "app_icon_darwin-iOS-Default-1024x1024@1x.png",
+    "app_icon.png",
+    "app_icon_linux.png",
+    "app_icon.svg",
+)
+
 
 def project_root() -> Path:
     """Return the repo root, or PyInstaller's bundle dir when frozen.
@@ -32,34 +39,74 @@ def _icon_filename() -> str:
     return "app_icon_linux.png"
 
 
-def app_icon_path() -> Path:
-    """Return the native app-icon file for the current platform.
+def _search_roots() -> list[Path]:
+    """Return directories that may hold bundled icons.
 
-    Frozen macOS builds use the ``.icns`` PyInstaller already copies into
-    ``Contents/Resources`` (not a second copy under ``assets/``).
+    Frozen macOS apps put ``datas`` under ``Contents/Resources``, while
+    ``sys._MEIPASS`` is typically ``Contents/MacOS`` or ``Contents/Frameworks``.
     """
-    name = _icon_filename()
-    assets = assets_dir()
-    candidates: list[Path] = []
+    roots: list[Path] = []
+    seen: set[str] = set()
+
+    def _add(path: Path) -> None:
+        key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        roots.append(path)
+
     if getattr(sys, "frozen", False):
         meipass = Path(getattr(sys, "_MEIPASS", "."))
-        candidates.extend(
-            (
-                meipass / name,
-                meipass / "assets" / name,
-                meipass.parent / "Resources" / name,
-                meipass.parent / "Resources" / "assets" / name,
-            )
+        _add(meipass)
+        _add(meipass / "assets")
+        _add(meipass.parent / "Resources")
+        _add(meipass.parent / "Resources" / "assets")
+    _add(assets_dir())
+    return roots
+
+
+def _first_file(*names: str) -> Path | None:
+    """Return the first existing file named in *names* under search roots.
+
+    Names are the priority order: a PNG in a later root beats an ``.icns``
+    sitting in ``Contents/Resources``.
+    """
+    roots = _search_roots()
+    for name in names:
+        for root in roots:
+            path = root / name
+            if path.is_file():
+                return path
+    return None
+
+
+def app_icon_path() -> Path:
+    """Return the native window / Dock icon for the current platform.
+
+    QIcon cannot decode ``.icns`` / ``.ico`` in the packaged app (those Qt
+    plugins are stripped). Prefer a PNG, and keep the bundle ``.icns`` for
+    Finder / Launchpad via ``CFBundleIconFile``.
+    """
+    png_names: tuple[str, ...] = ()
+    if sys.platform == "darwin":
+        png_names = (
+            "app_icon_darwin.png",
+            "app_icon_darwin-iOS-Default-1024x1024@1x.png",
         )
-    candidates.extend(
-        (
-            assets / name,
-            assets / "app_icon_darwin-iOS-Default-1024x1024@1x.png",
-            assets / "app_icon_linux.png",
-            assets / "app_icon.svg",
-        )
-    )
-    for path in candidates:
-        if path.is_file():
-            return path
-    return assets / "app_icon.svg"
+    found = _first_file(*png_names, _icon_filename(), *_MARK_FILENAMES)
+    if found is not None:
+        return found
+    return assets_dir() / "app_icon.svg"
+
+
+def app_mark_path() -> Path:
+    """Return the full-bleed mark for in-app chrome (sidebar, about).
+
+    Unlike :func:`app_icon_path`, this prefers the Icon Composer iOS
+    export so the squircle fills a fixed-size ``QLabel`` instead of
+    inheriting Dock padding.
+    """
+    found = _first_file(*_MARK_FILENAMES)
+    if found is not None:
+        return found
+    return app_icon_path()

@@ -5,10 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QPixmap
+from PySide6.QtGui import QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QLabel,
+    QHBoxLayout,
     QListWidget,
     QListWidgetItem,
     QSplitter,
@@ -18,7 +18,8 @@ from PySide6.QtWidgets import (
 
 from eclipse_compositor.cv.loading import load_image_bgr
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
-from eclipse_compositor.ui.state import ImageItem, ScreenState
+from eclipse_compositor.ui.state import ImageItem, JobStatus, ScreenState
+from eclipse_compositor.ui.theme import COLOR, ActionButton, CaptionLabel, HintLabel
 from eclipse_compositor.ui.widgets.frame_preview import FramePreview
 from eclipse_compositor.ui.widgets.viewport import bgr_to_qimage
 
@@ -74,17 +75,27 @@ class GalleryBar(QWidget):
     select_image = Signal(object)  # int | None
     reorder_images = Signal(object)  # tuple[ImageItem, ...]
     files_dropped = Signal(object)  # tuple[Path, ...]
+    import_clicked = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("gallery")
         self._updating = False
         self._items: tuple[ImageItem, ...] = ()
         self._icons: dict[str, QIcon] = {}
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 8)
+        layout.setContentsMargins(14, 16, 14, 14)
+        layout.setSpacing(8)
 
-        header = QLabel("Frames (drag to reorder)")
-        header.setStyleSheet("font-weight: 600;")
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        title = CaptionLabel("Frames")
+        title.setObjectName("sectionTitle")
+        self._count = CaptionLabel()
+        self._count.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        header_row.addWidget(title)
+        header_row.addWidget(self._count, stretch=1)
+        hint = HintLabel("Drag to reorder")
         self.list = FrameListWidget()
         self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
@@ -101,7 +112,11 @@ class GalleryBar(QWidget):
         list_pane = QWidget()
         list_layout = QVBoxLayout(list_pane)
         list_layout.setContentsMargins(0, 0, 0, 0)
-        list_layout.addWidget(header)
+        list_layout.setSpacing(4)
+        self.import_btn = ActionButton("Import")
+        list_layout.addWidget(self.import_btn)
+        list_layout.addLayout(header_row)
+        list_layout.addWidget(hint)
         list_layout.addWidget(self.list)
 
         self.frame_preview = FramePreview()
@@ -114,6 +129,8 @@ class GalleryBar(QWidget):
         split.setSizes([520, 140])
         layout.addWidget(split)
         self.setMinimumWidth(220)
+
+        self.import_btn.clicked.connect(self.import_clicked.emit)
 
     def _on_item_changed(self, item: QListWidgetItem) -> None:
         if self._updating:
@@ -189,7 +206,7 @@ class GalleryBar(QWidget):
         row.setText(self._row_label(item))
         row.setIcon(self._icon_for(item))
         if item.detection_ok is False:
-            row.setForeground(Qt.GlobalColor.red)
+            row.setForeground(QColor(COLOR.danger))
         else:
             row.setData(Qt.ItemDataRole.ForegroundRole, None)
 
@@ -219,12 +236,14 @@ class GalleryBar(QWidget):
                         continue
                     row.setText(self._row_label(item))
                     if item.detection_ok is False:
-                        row.setForeground(Qt.GlobalColor.red)
+                        row.setForeground(QColor(COLOR.danger))
                     else:
                         row.setData(Qt.ItemDataRole.ForegroundRole, None)
             finally:
                 self._updating = False
             self.frame_preview.render(state)
+            self._update_count(new_items)
+            self._sync_import_enabled(state)
             return
 
         self._updating = True
@@ -253,3 +272,22 @@ class GalleryBar(QWidget):
         finally:
             self._updating = False
         self.frame_preview.render(state)
+        self._update_count(new_items)
+        self._sync_import_enabled(state)
+
+    def _sync_import_enabled(self, state: ScreenState) -> None:
+        """Disable Import while a background job is running."""
+        busy = (
+            state.import_status == JobStatus.RUNNING
+            or state.export_status == JobStatus.RUNNING
+            or state.preview_status == JobStatus.RUNNING
+        )
+        self.import_btn.setEnabled(not busy)
+
+    def _update_count(self, items: tuple[ImageItem, ...]) -> None:
+        """Refresh the enabled/total caption in the gallery header."""
+        if not items:
+            self._count.setText("")
+            return
+        enabled = sum(1 for item in items if item.enabled)
+        self._count.setText(f"{enabled} of {len(items)}")

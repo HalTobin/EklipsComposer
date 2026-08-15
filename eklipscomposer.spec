@@ -5,7 +5,7 @@ Build from the repo root:
 
     ./build_scripts/macos.sh
 
-The result is output/VulturEklips.app.
+The result is output/EklipsComposer.app.
 """
 
 from __future__ import annotations
@@ -32,21 +32,29 @@ else:
         "before packaging (macos.sh does this automatically)."
     )
 
-# macOS: BUNDLE copies the .icns into Contents/Resources — do not also
-# ship it under assets/ (that doubled the icon). Windows/Linux still need
-# a loose file for QIcon.
+# macOS: BUNDLE copies the .icns into Contents/Resources for Finder /
+# Launchpad. Do not also ship that .icns under assets/ (it doubled the
+# Dock icon). In-app chrome uses a PNG because libqicns / libqico are
+# stripped from the bundle.
 if sys.platform == "darwin":
     APP_ICON = ROOT / "assets" / "app_icon_darwin.icns"
 elif sys.platform == "win32":
     APP_ICON = ROOT / "assets" / "app_icon_win.ico"
 else:
     APP_ICON = ROOT / "assets" / "app_icon_linux.png"
-if APP_ICON.is_file():
-    APP_ICON_STR = str(APP_ICON)
-    if sys.platform != "darwin":
-        datas.append((str(APP_ICON), "assets"))
-else:
-    APP_ICON_STR = None
+APP_ICON_STR = str(APP_ICON) if APP_ICON.is_file() else None
+
+_MARK = ROOT / "assets" / "app_icon_darwin-iOS-Default-1024x1024@1x.png"
+if not _MARK.is_file():
+    _MARK = ROOT / "assets" / "app_icon_linux.png"
+if _MARK.is_file():
+    datas.append((str(_MARK), "assets"))
+
+_PADDED = ROOT / "assets" / "app_icon_darwin.png"
+if sys.platform == "darwin" and _PADDED.is_file():
+    datas.append((str(_PADDED), "assets"))
+elif sys.platform != "darwin" and APP_ICON.is_file():
+    datas.append((str(APP_ICON), "assets"))
 
 # Widgets-only UI. collect_all(PySide6/cv2) pulls WebEngine, QML, Designer, etc.
 excludes = [
@@ -228,7 +236,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="VulturEklips",
+    name="EklipsComposer",
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,
@@ -249,38 +257,38 @@ coll = COLLECT(
     strip=True,
     upx=True,
     upx_exclude=[],
-    name="VulturEklips",
+    name="EklipsComposer",
 )
 
 app = BUNDLE(
     coll,
-    name="VulturEklips.app",
+    name="EklipsComposer.app",
     icon=APP_ICON_STR,
-    bundle_identifier="com.vultureklips.app",
+    bundle_identifier="com.moineaufactory.eklipscomposer",
     info_plist={
-        "CFBundleDisplayName": "VulturEklips",
-        "CFBundleName": "VulturEklips",
-        "CFBundleShortVersionString": "0.3.1",
+        "CFBundleDisplayName": "EklipsComposer",
+        "CFBundleName": "EklipsComposer",
+        "CFBundleShortVersionString": "0.4.0",
         "NSHighResolutionCapable": True,
         "CFBundleDocumentTypes": [
             {
-                "CFBundleTypeName": "VulturEklips Project",
+                "CFBundleTypeName": "EklipsComposer",
                 "CFBundleTypeRole": "Editor",
                 "CFBundleTypeExtensions": ["vlt"],
                 "CFBundleTypeIconFile": "app_icon_darwin.icns",
                 "LSHandlerRank": "Owner",
-                "LSItemContentTypes": ["com.vultureklips.project"],
+                "LSItemContentTypes": ["com.moineaufactory.eklipscomposer"],
             }
         ],
         "UTExportedTypeDeclarations": [
             {
-                "UTTypeIdentifier": "com.vultureklips.project",
-                "UTTypeDescription": "VulturEklips Project",
+                "UTTypeIdentifier": "com.moineaufactory.eklipscomposer",
+                "UTTypeDescription": "EklipsComposer",
                 "UTTypeConformsTo": ["public.data"],
                 "UTTypeIconFile": "app_icon_darwin.icns",
                 "UTTypeTagSpecification": {
                     "public.filename-extension": ["vlt"],
-                    "public.mime-type": ["application/x-vultureklips-project"],
+                    "public.mime-type": ["application/x-eklipscomposer-project"],
                 },
             }
         ],
