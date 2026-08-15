@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -73,6 +74,7 @@ class GalleryBar(QWidget):
 
     toggle_image = Signal(int, bool)
     select_image = Signal(object)  # int | None
+    remove_clicked = Signal(object)  # int | None
     reorder_images = Signal(object)  # tuple[ImageItem, ...]
     files_dropped = Signal(object)  # tuple[Path, ...]
     import_clicked = Signal()
@@ -97,12 +99,15 @@ class GalleryBar(QWidget):
         header_row.addWidget(self._count, stretch=1)
         hint = HintLabel("Drag to reorder")
         self.list = FrameListWidget()
-        self.list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.list.setDragEnabled(True)
+        self.list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.list.itemChanged.connect(self._on_item_changed)
         self.list.currentRowChanged.connect(self._on_row_changed)
+        self.list.itemSelectionChanged.connect(self._on_selection_changed)
+        self.list.customContextMenuRequested.connect(self._on_context_menu)
         self.list.model().rowsMoved.connect(self._on_rows_moved)
         self.list.files_dropped.connect(self.files_dropped.emit)
         self.list.setMinimumWidth(180)
@@ -113,8 +118,13 @@ class GalleryBar(QWidget):
         list_layout = QVBoxLayout(list_pane)
         list_layout.setContentsMargins(0, 0, 0, 0)
         list_layout.setSpacing(4)
+        row_buttons = QHBoxLayout()
         self.import_btn = ActionButton("Import")
-        list_layout.addWidget(self.import_btn)
+        self.remove_btn = ActionButton("Remove", variant="ghost")
+        self.remove_btn.setEnabled(False)
+        row_buttons.addWidget(self.import_btn)
+        row_buttons.addWidget(self.remove_btn)
+        list_layout.addLayout(row_buttons)
         list_layout.addLayout(header_row)
         list_layout.addWidget(hint)
         list_layout.addWidget(self.list)
@@ -131,6 +141,20 @@ class GalleryBar(QWidget):
         self.setMinimumWidth(220)
 
         self.import_btn.clicked.connect(self.import_clicked.emit)
+        self.remove_btn.clicked.connect(self._on_remove_selected)
+
+    def _on_remove_selected(self) -> None:
+        rows = self._selected_row_indices()
+        if not rows:
+            row = self.list.currentRow()
+            if row >= 0:
+                rows = (row,)
+            else:
+                return
+        self.remove_clicked.emit(rows)
+
+    def _selected_row_indices(self) -> tuple[int, ...]:
+        return tuple(sorted({self.list.row(item) for item in self.list.selectedItems()}))
 
     def _on_item_changed(self, item: QListWidgetItem) -> None:
         if self._updating:
@@ -139,10 +163,42 @@ class GalleryBar(QWidget):
         enabled = item.checkState() == Qt.CheckState.Checked
         self.toggle_image.emit(index, enabled)
 
+    def _on_selection_changed(self) -> None:
+        self.remove_btn.setEnabled(bool(self.list.selectedItems()))
+
     def _on_row_changed(self, row: int) -> None:
         if self._updating:
             return
+        self.remove_btn.setEnabled(row >= 0 or bool(self.list.selectedItems()))
         self.select_image.emit(row if row >= 0 else None)
+
+    def _on_context_menu(self, pos) -> None:
+        row = self.list.row(self.list.itemAt(pos))
+        if row < 0:
+            return
+        if row not in self._selected_row_indices():
+            self.list.clearSelection()
+            self.list.setCurrentRow(row)
+        menu = QMenu(self)
+        properties_action = menu.addAction("Properties")
+        properties_action.triggered.connect(self._emit_properties_selected)
+        menu.addSeparator()
+        delete_action = menu.addAction("Remove")
+        delete_action.triggered.connect(self._emit_remove_selected)
+        menu.exec(self.list.viewport().mapToGlobal(pos))
+
+    def _emit_properties_selected(self) -> None:
+        row = self.list.currentRow()
+        if row < 0:
+            return
+        self.list.clearSelection()
+        self.list.setCurrentRow(row)
+        self.frame_preview.show_properties()
+
+    def _emit_remove_selected(self) -> None:
+        rows = self._selected_row_indices()
+        if rows:
+            self.remove_clicked.emit(rows)
 
     def _on_rows_moved(self, *_args: object) -> None:
         if self._updating:
@@ -209,6 +265,19 @@ class GalleryBar(QWidget):
             row.setForeground(QColor(COLOR.danger))
         else:
             row.setData(Qt.ItemDataRole.ForegroundRole, None)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            rows = self._selected_row_indices()
+            if not rows:
+                row = self.list.currentRow()
+                if row >= 0:
+                    rows = (row,)
+            if rows:
+                self.remove_clicked.emit(rows)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def render(self, state: ScreenState) -> None:
         """Rebuild the list to match *state.images*."""

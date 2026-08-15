@@ -35,6 +35,13 @@ class ToggleImage(ScreenAction):
 
 
 @dataclass(frozen=True)
+class RemoveImage(ScreenAction):
+    """Remove one or more gallery frames by index."""
+
+    indices: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class SelectImage(ScreenAction):
     """Highlight a gallery item."""
 

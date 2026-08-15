@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
+from PIL import Image
 from PySide6.QtCore import Qt
 from PySide6.QtGui import (
     QColor,
@@ -12,11 +15,137 @@ from PySide6.QtGui import (
     QPixmap,
     QResizeEvent,
 )
-from PySide6.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QLabel,
+    QSizePolicy,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 from eclipse_compositor.ui.state import ScreenState
 from eclipse_compositor.ui.theme import COLOR, CaptionLabel
 from eclipse_compositor.ui.widgets.viewport import bgr_to_qimage
+
+
+def _as_text(value: object) -> str:
+    """Convert EXIF payload values to a readable string."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        for encoding in ("utf-8", "latin-1", "windows-1252"):
+            try:
+                return value.decode(encoding).strip()
+            except UnicodeDecodeError:
+                continue
+        return value.decode("utf-8", errors="replace").strip()
+    if isinstance(value, (list, tuple)):
+        return ", ".join(_as_text(part) for part in value if _as_text(part))
+    return str(value).strip()
+
+
+def _gps_to_text(gps_info: object) -> str:
+    """Convert GPS EXIF data to a human-readable location string."""
+    if not isinstance(gps_info, dict):
+        return "Not available"
+
+    def _coord(tag: int, ref_tag: int) -> str | None:
+        values = gps_info.get(tag)
+        ref = gps_info.get(ref_tag)
+        if values is None or ref is None:
+            return None
+        if isinstance(values, tuple):
+            parts = values
+        elif isinstance(values, list):
+            parts = tuple(values)
+        else:
+            parts = (values,)
+        try:
+            total = float(parts[0])
+            for part in parts[1:]:
+                total += float(part) / 60.0
+        except (TypeError, ValueError):
+            return None
+        suffix = str(ref)
+        return f"{total:.6f} {suffix}"
+
+    lat = _coord(2, 1)
+    lon = _coord(4, 3)
+    if lat is None and lon is None:
+        return "Not available"
+    if lat is None:
+        lat = "Unknown"
+    if lon is None:
+        lon = "Unknown"
+    return f"{lat}, {lon}"
+
+
+def read_image_properties(path: str | Path) -> dict[str, str]:
+    """Read EXIF and image metadata for a selected frame.
+
+    Returns a mapping of user-friendly labels to strings suitable for display
+    in the property tab.
+    """
+    file_path = Path(path)
+    props: dict[str, str] = {
+        "File": str(file_path.name),
+        "Resolution": "Unknown",
+        "Date": "Not available",
+        "Comment": "Not available",
+        "Location": "Not available",
+        "Camera": "Not available",
+    }
+
+    try:
+        with Image.open(file_path) as image:
+            width, height = image.size
+            props["Resolution"] = f"{width} × {height}"
+
+            exif = image.getexif()
+            if exif:
+                date_values = (
+                    exif.get(36867),
+                    exif.get(306),
+                    exif.get(36868),
+                )
+                for value in date_values:
+                    text = _as_text(value)
+                    if text:
+                        if text.count(":") >= 2 and " " in text:
+                            try:
+                                from datetime import datetime
+
+                                dt = datetime.strptime(text, "%Y:%m:%d %H:%M:%S")
+                                props["Date"] = dt.strftime("%Y-%m-%d %H:%M:%S")
+                            except ValueError:
+                                props["Date"] = text
+                        else:
+                            props["Date"] = text
+                        break
+
+                comment_text = _as_text(exif.get(270) or exif.get(37510))
+                if comment_text:
+                    props["Comment"] = comment_text
+                camera_maker = _as_text(exif.get(271))
+                camera_model = _as_text(exif.get(272))
+                camera = ", ".join(part for part in (camera_maker, camera_model) if part)
+                if camera:
+                    props["Camera"] = camera
+
+                gps_info = exif.get_ifd(34853)
+                if gps_info:
+                    location = _gps_to_text(gps_info)
+                    if location != "Not available":
+                        props["Location"] = location
+
+                if not props["Comment"] or props["Comment"] == "Not available":
+                    artist = _as_text(exif.get(315))
+                    if artist:
+                        props["Comment"] = artist
+    except (OSError, ValueError):
+        return props
+
+    return props
 
 
 class _FittedImage(QWidget):
@@ -74,27 +203,59 @@ class FramePreview(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._last_image_ref: object | None = None
+        self._selected_path: Path | None = None
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 8, 0, 0)
         root.setSpacing(6)
+
         header = CaptionLabel("Selected frame")
         header.setObjectName("sectionTitle")
         root.addWidget(header)
+
+        self._tabs = QTabWidget()
+        self._tabs.setTabPosition(QTabWidget.TabPosition.North)
+        self._tabs.setDocumentMode(True)
+
+        self._preview_widget = QWidget()
+        self._preview_layout = QVBoxLayout(self._preview_widget)
+        self._preview_layout.setContentsMargins(0, 0, 0, 0)
+        self._preview_layout.setSpacing(6)
         self._canvas = _FittedImage()
-        root.addWidget(self._canvas, stretch=1)
+        self._preview_layout.addWidget(self._canvas, stretch=1)
         self._caption = CaptionLabel()
         self._caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self._caption)
-        self.setMinimumHeight(120)
+        self._preview_layout.addWidget(self._caption)
+
+        self._properties_widget = QWidget()
+        self._properties_layout = QVBoxLayout(self._properties_widget)
+        self._properties_layout.setContentsMargins(8, 8, 8, 8)
+        self._properties_label = QLabel()
+        self._properties_label.setWordWrap(True)
+        self._properties_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.LinksAccessibleByMouse
+        )
+        self._properties_label.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
+        self._properties_layout.addWidget(self._properties_label)
+
+        self._tabs.addTab(self._preview_widget, "Preview")
+        self._tabs.addTab(self._properties_widget, "Properties")
+        root.addWidget(self._tabs, stretch=1)
+        self.setMinimumHeight(160)
 
     def render(self, state: ScreenState) -> None:
-        """Show the selected frame proxy, or a placeholder if none."""
+        """Show the selected frame proxy and metadata, or a placeholder if none."""
         index = state.selected_index
         if index is None or not (0 <= index < len(state.images)):
             self._show(None, "Select a frame", "")
+            self._set_properties_text("Select a frame to inspect its EXIF and file details.")
             return
 
         item = state.images[index]
+        self._selected_path = item.path
         if item.detection_ok is True:
             status = "Disc found"
         elif item.detection_ok is False:
@@ -106,6 +267,27 @@ class FramePreview(QWidget):
         if image is not None and not isinstance(image, np.ndarray):
             image = None
         self._show(image, "Preview unavailable", caption)
+        self._set_properties_text(self._properties_html(item.path))
+
+    def _properties_html(self, path: Path) -> str:
+        """Create an HTML summary for the selected frame's metadata."""
+        properties = read_image_properties(path)
+        rows = [
+            f"<b>{label}</b>: {value}"
+            for label, value in properties.items()
+            if value and value != "Not available"
+        ]
+        if not rows:
+            return "<p><i>No metadata available for this frame.</i></p>"
+        return "<br>".join(rows)
+
+    def _set_properties_text(self, text: str) -> None:
+        """Display a human-readable metadata summary in the Properties tab."""
+        self._properties_label.setText(text)
+
+    def show_properties(self) -> None:
+        """Switch to the properties tab for the current selection."""
+        self._tabs.setCurrentIndex(1)
 
     def _show(
         self,

@@ -33,6 +33,7 @@ from eclipse_compositor.ui.actions import (
     PreviewFailed,
     PreviewFinished,
     PreviewProgress,
+    RemoveImage,
     ReorderImages,
     RequestPreview,
     ResetColorimetry,
@@ -85,6 +86,7 @@ from eclipse_compositor.ui.state import (
     enabled_paths,
     native_max_from_shapes,
 )
+from eclipse_compositor.ui.use_cases import UseCases
 from eclipse_compositor.ui.workers import (
     ExportWorker,
     ImportWorker,
@@ -105,8 +107,13 @@ class ScreenViewModel(QObject):
 
     state_changed = Signal(object)  # ScreenState
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        use_cases: UseCases | None = None,
+    ) -> None:
         super().__init__(parent)
+        self.use_cases = use_cases or UseCases()
         self._state: ScreenState = default_state()
         self._pool = QThreadPool.globalInstance()
         self._proxy_cache: dict[Path, np.ndarray] = {}
@@ -260,50 +267,66 @@ class ScreenViewModel(QObject):
                 self._clear_project_tmpdir()
                 self._clear_open_staging()
                 self._clean_blueprint = None
-                self._emit(
-                    replace(
-                        self._state,
-                        images=(),
-                        preview_bgr=None,
-                        proxy_ready=False,
-                        native_max_resolution=DEFAULT_MAX_RESOLUTION,
-                        status_message="Import eclipse photos to begin, or drop files here.",
-                        error_message=None,
-                        selected_index=None,
-                        selected_preview_bgr=None,
-                        last_project_path=None,
-                        import_status=JobStatus.IDLE,
-                        export_status=JobStatus.IDLE,
-                        preview_status=JobStatus.IDLE,
-                    )
-                )
+                self._emit(self.use_cases.clear_images.invoke(self._state))
 
             case ToggleImage(index=index, enabled=enabled):
-                images = list(self._state.images)
-                if 0 <= index < len(images):
-                    images[index] = replace(images[index], enabled=enabled)
-                    self._emit(replace(self._state, images=tuple(images)))
+                next_state = self.use_cases.toggle_image.invoke(
+                    self._state,
+                    index,
+                    enabled,
+                )
+                if next_state is not self._state:
+                    self._emit(next_state)
+                    self._schedule_preview()
+
+            case RemoveImage(indices=indices):
+                if not indices:
+                    return
+                next_state = self.use_cases.remove_image.invoke(self._state, tuple(indices))
+                if next_state is self._state:
+                    return
+
+                for path in list(self._proxy_cache):
+                    if path not in {item.path for item in next_state.images}:
+                        self._proxy_cache.pop(path, None)
+                for path in list(self._full_shapes):
+                    if path not in {item.path for item in next_state.images}:
+                        self._full_shapes.pop(path, None)
+
+                self._emit(self._with_selected_frame(next_state, next_state.selected_index))
+                if not next_state.images:
+                    self._proxy_cache.clear()
+                    self._full_shapes.clear()
+                    self._clear_video_tmpdir()
+                    self._clear_thumb_tmpdir()
+                    self._clear_project_tmpdir()
+                    self._clear_open_staging()
+                    self._clean_blueprint = None
+                    self._emit(
+                        replace(
+                            self._state,
+                            images=(),
+                            preview_bgr=None,
+                            proxy_ready=False,
+                            native_max_resolution=DEFAULT_MAX_RESOLUTION,
+                            status_message="Import eclipse photos to begin, or drop files here.",
+                            error_message=None,
+                            selected_index=None,
+                            selected_preview_bgr=None,
+                            import_status=JobStatus.IDLE,
+                            export_status=JobStatus.IDLE,
+                            preview_status=JobStatus.IDLE,
+                        )
+                    )
+                else:
                     self._schedule_preview()
 
             case SelectImage(index=index):
                 self._emit(self._with_selected_frame(self._state, index))
 
             case ReorderImages(images=images):
-                selected_path: Path | None = None
-                sel = self._state.selected_index
-                if sel is not None and 0 <= sel < len(self._state.images):
-                    selected_path = self._state.images[sel].path
-                new_index = None
-                if selected_path is not None:
-                    for i, item in enumerate(images):
-                        if item.path == selected_path:
-                            new_index = i
-                            break
-                self._emit(
-                    self._with_selected_frame(
-                        replace(self._state, images=images), new_index
-                    )
-                )
+                next_state = self.use_cases.reorder_images.invoke(self._state, images)
+                self._emit(self._with_selected_frame(next_state, next_state.selected_index))
                 self._schedule_preview()
 
             case UpdateCropSize(value=value):
@@ -532,81 +555,44 @@ class ScreenViewModel(QObject):
                 self._job_cancel = None
                 if was_open:
                     self._clear_open_staging()
-                self._emit(
-                    self._without_blocking_job(
-                        self._state,
-                        import_status=JobStatus.IDLE,
-                        export_status=JobStatus.IDLE,
-                        progress=0.0,
-                        status_message="Cancelled.",
-                        error_message=None,
-                    )
-                )
+                self._emit(self.use_cases.blocking_job_cancelled.invoke(self._state))
 
             case ImportProgress(progress=progress, message=message):
                 self._emit(
-                    replace(
+                    self.use_cases.import_progress.invoke(
                         self._state,
-                        progress=progress,
-                        status_message=message,
-                        import_status=JobStatus.RUNNING,
+                        progress,
+                        message,
                     )
                 )
 
             case ImportFinished(images=images, generation=generation):
                 if generation != self._state._proxy_generation:
                     return
-                existing = list(self._state.images)
-                existing_paths = {item.path for item in existing}
-                merged = existing + [
-                    img for img in images if img.path not in existing_paths
-                ]
                 native_max = native_max_from_shapes(self._full_shapes)
-                crop_size = min(self._state.crop_size, native_max)
-                merged_tuple = tuple(merged)
-                selected = self._state.selected_index
-                if selected is None and merged_tuple:
-                    selected = 0
-                elif selected is not None and selected >= len(merged_tuple):
-                    selected = 0 if merged_tuple else None
+                next_state = self.use_cases.import_finished.invoke(
+                    self._state,
+                    images,
+                    generation,
+                    native_max,
+                )
                 self._emit(
                     self._with_selected_frame(
-                        replace(
-                            self._state,
-                            images=merged_tuple,
-                            import_status=JobStatus.IDLE,
-                            proxy_ready=True,
-                            native_max_resolution=native_max,
-                            crop_size=crop_size,
-                            progress=1.0,
-                            status_message=(
-                                f"Imported {len(images)} frame(s). "
-                                "Preview updates live as you adjust settings."
-                            ),
-                            error_message=None,
-                        ),
-                        selected,
+                        next_state,
+                        next_state.selected_index,
                     )
                 )
                 self._schedule_preview()
 
             case ImportFailed(message=message):
-                self._emit(
-                    replace(
-                        self._state,
-                        import_status=JobStatus.IDLE,
-                        error_message=message,
-                        status_message="Import failed.",
-                    )
-                )
+                self._emit(self.use_cases.import_failed.invoke(self._state, message))
 
             case PreviewProgress(progress=progress, message=message):
                 self._emit(
-                    replace(
+                    self.use_cases.preview_progress.invoke(
                         self._state,
-                        progress=progress,
-                        status_message=message,
-                        preview_status=JobStatus.RUNNING,
+                        progress,
+                        message,
                     )
                 )
 
@@ -618,93 +604,61 @@ class ScreenViewModel(QObject):
             ):
                 if generation != self._state._preview_generation:
                     return
-                flag_map = dict(detection_flags)
-                updated = tuple(
-                    replace(item, detection_ok=flag_map.get(item.path))
-                    for item in self._state.images
-                )
-                skip_note = (
-                    f" Skipped {len(skipped)} (no disc)." if skipped else ""
-                )
                 self._emit(
-                    replace(
+                    self.use_cases.preview_finished.invoke(
                         self._state,
-                        images=updated,
-                        preview_bgr=preview_bgr,
-                        preview_status=JobStatus.IDLE,
-                        progress=1.0,
-                        status_message=f"Preview updated.{skip_note}",
-                        error_message=None,
+                        preview_bgr,
+                        generation,
+                        skipped,
+                        detection_flags,
                     )
                 )
 
             case PreviewFailed(message=message, generation=generation):
                 if generation != self._state._preview_generation:
                     return
-                self._emit(
-                    replace(
-                        self._state,
-                        preview_status=JobStatus.IDLE,
-                        error_message=message,
-                        status_message="Preview failed.",
-                    )
-                )
+                self._emit(self.use_cases.preview_failed.invoke(self._state, message))
 
             case ExportProgress(progress=progress, message=message):
                 self._emit(
-                    replace(
+                    self.use_cases.export_progress.invoke(
                         self._state,
-                        progress=progress,
-                        status_message=message,
-                        export_status=JobStatus.RUNNING,
+                        progress,
+                        message,
                     )
                 )
 
             case ExportFinished(output_path=output_path, skipped=skipped):
-                skip_note = (
-                    f" Skipped {len(skipped)} frame(s)." if skipped else ""
-                )
                 self._job_cancel = None
                 self._emit(
                     self._without_blocking_job(
-                        self._state,
-                        export_status=JobStatus.IDLE,
-                        last_export_path=output_path,
-                        progress=1.0,
-                        status_message=f"Exported to {output_path}.{skip_note}",
-                        error_message=None,
+                        self.use_cases.export_finished.invoke(
+                            self._state,
+                            output_path,
+                            skipped,
+                        )
                     )
                 )
 
             case ExportFailed(message=message):
                 self._job_cancel = None
-                self._emit(
-                    self._without_blocking_job(
-                        self._state,
-                        export_status=JobStatus.IDLE,
-                        error_message=message,
-                        status_message="Export failed.",
-                    )
-                )
+                self._emit(self.use_cases.export_failed.invoke(self._state, message))
 
             case SaveProjectProgress(progress=progress, message=message):
                 self._emit(
-                    replace(
+                    self.use_cases.save_project_progress.invoke(
                         self._state,
-                        progress=progress,
-                        status_message=message,
-                        export_status=JobStatus.RUNNING,
+                        progress,
+                        message,
                     )
                 )
 
             case SaveProjectFinished(output_path=output_path):
                 saved = self._without_blocking_job(
-                    self._state,
-                    export_status=JobStatus.IDLE,
-                    last_project_path=output_path,
-                    progress=1.0,
-                    status_message=f"Saved project to {output_path}.",
-                    error_message=None,
+                    self.use_cases.project_saved.invoke(
+                        self._state,
+                        output_path,
+                    )
                 )
                 self._job_cancel = None
                 self._clean_blueprint = blueprint_from_state(saved)
@@ -713,21 +667,15 @@ class ScreenViewModel(QObject):
             case SaveProjectFailed(message=message):
                 self._job_cancel = None
                 self._emit(
-                    self._without_blocking_job(
-                        self._state,
-                        export_status=JobStatus.IDLE,
-                        error_message=message,
-                        status_message="Save failed.",
-                    )
+                    self.use_cases.save_project_failed.invoke(self._state, message)
                 )
 
             case OpenProjectProgress(progress=progress, message=message):
                 self._emit(
-                    replace(
+                    self.use_cases.open_project_progress.invoke(
                         self._state,
-                        progress=progress,
-                        status_message=message,
-                        import_status=JobStatus.RUNNING,
+                        progress,
+                        message,
                     )
                 )
 
@@ -754,12 +702,7 @@ class ScreenViewModel(QObject):
                 self._clear_open_staging()
                 self._job_cancel = None
                 self._emit(
-                    self._without_blocking_job(
-                        self._state,
-                        import_status=JobStatus.IDLE,
-                        error_message=message,
-                        status_message="Open failed.",
-                    )
+                    self.use_cases.open_project_failed.invoke(self._state, message)
                 )
 
             case _:
@@ -938,6 +881,10 @@ class ScreenViewModel(QObject):
             project_path=result.project_path,
             proxy_generation=self._state._proxy_generation,
             preview_generation=self._state._preview_generation + 1,
+        )
+        restored = self.use_cases.project_opened.invoke(
+            restored,
+            result.project_path,
         )
         selected = restored.selected_index
         adopted = self._with_selected_frame(restored, selected)

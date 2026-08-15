@@ -1,6 +1,11 @@
 """Reusable Qt widgets for the compositor UI."""
 
-from eclipse_compositor.ui.widgets.about_dialog import AboutDialog, show_about_dialog
+from eclipse_compositor.ui.widgets.about_dialog import (
+    AboutDialog,
+    LicensesDialog,
+    show_about_dialog,
+    show_licenses_dialog,
+)
 from eclipse_compositor.ui.widgets.frame_preview import FramePreview
 from eclipse_compositor.ui.widgets.fullscreen_preview import FullscreenPreview
 from eclipse_compositor.ui.widgets.gallery import GalleryBar
@@ -18,10 +23,12 @@ __all__ = [
     "FullscreenPreview",
     "GalleryBar",
     "JobOverlay",
+    "LicensesDialog",
     "PreviewViewport",
     "Sidebar",
     "VideoImportDialog",
     "ViewportPane",
     "confirm_video_import",
     "show_about_dialog",
+    "show_licenses_dialog",
 ]

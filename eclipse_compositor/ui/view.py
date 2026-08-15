@@ -30,6 +30,7 @@ from eclipse_compositor.ui.actions import (
     ExportComposite,
     LoadImages,
     OpenProject,
+    RemoveImage,
     ReorderImages,
     ResetColorimetry,
     SaveProject,
@@ -71,7 +72,7 @@ from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_f
 from eclipse_compositor.ui.state import JobStatus, ScreenState
 from eclipse_compositor.ui.theme import qicon_from_path
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
-from eclipse_compositor.ui.widgets.about_dialog import show_about_dialog
+from eclipse_compositor.ui.widgets.about_dialog import show_about_dialog, show_licenses_dialog
 from eclipse_compositor.ui.widgets.gallery import GalleryBar
 from eclipse_compositor.ui.widgets.sidebar import Sidebar
 from eclipse_compositor.ui.widgets.fullscreen_preview import FullscreenPreview
@@ -191,6 +192,11 @@ class ScreenView(QMainWindow):
         )
         self.gallery.toggle_image.connect(
             lambda i, e: self.view_model.dispatch(ToggleImage(i, e))
+        )
+        self.gallery.remove_clicked.connect(
+            lambda indices: self.view_model.dispatch(
+                RemoveImage(tuple(indices) if isinstance(indices, tuple) else (indices,))
+            )
         )
         self.gallery.select_image.connect(
             lambda i: self.view_model.dispatch(SelectImage(i))
@@ -535,10 +541,17 @@ class ScreenView(QMainWindow):
         self._about_action.setMenuRole(QAction.MenuRole.AboutRole)
         self._about_action.triggered.connect(self._on_about)
         help_menu.addAction(self._about_action)
+        self._licenses_action = QAction("Licenses", self)
+        self._licenses_action.triggered.connect(self._on_licenses)
+        help_menu.addAction(self._licenses_action)
 
     def _on_about(self) -> None:
         """Show app credits, version, and the GitHub repository link."""
         show_about_dialog(self)
+
+    def _on_licenses(self) -> None:
+        """Show bundled open-source license references."""
+        show_licenses_dialog(self)
 
     def _on_fullscreen_preview(self) -> None:
         """Show (or dismiss) an immersive view of the current composite."""
