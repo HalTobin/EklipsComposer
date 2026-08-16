@@ -69,10 +69,11 @@ from eclipse_compositor.cv.video import (
 from eclipse_compositor.project import PROJECT_SUFFIX, is_project_file
 from eclipse_compositor.resources import app_icon_path
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
+from eclipse_compositor.ui.licenses import show_licenses_dialog
 from eclipse_compositor.ui.state import JobStatus, ScreenState
 from eclipse_compositor.ui.theme import qicon_from_path
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
-from eclipse_compositor.ui.widgets.about_dialog import show_about_dialog, show_licenses_dialog
+from eclipse_compositor.ui.widgets.about_dialog import show_about_dialog
 from eclipse_compositor.ui.widgets.gallery import GalleryBar
 from eclipse_compositor.ui.widgets.sidebar import Sidebar
 from eclipse_compositor.ui.widgets.fullscreen_preview import FullscreenPreview
