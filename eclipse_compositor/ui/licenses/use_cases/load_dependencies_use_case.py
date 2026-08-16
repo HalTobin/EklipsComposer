@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 
-from eclipse_compositor.ui.licenses.provider import DependencyProvider, StaticDependencyProvider
+from eclipse_compositor.ui.licenses.provider import DependencyProvider, ReportFileDependencyProvider
 from eclipse_compositor.ui.licenses.state import LicensesState
 
 
@@ -12,7 +12,7 @@ from eclipse_compositor.ui.licenses.state import LicensesState
 class LoadDependenciesUseCase:
     """Fetch the dependency catalog and select the first entry by default."""
 
-    provider: DependencyProvider = field(default_factory=StaticDependencyProvider)
+    provider: DependencyProvider = field(default_factory=ReportFileDependencyProvider)
 
     def invoke(self, state: LicensesState) -> LicensesState:
         try:

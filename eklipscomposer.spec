@@ -56,6 +56,11 @@ if sys.platform == "darwin" and _PADDED.is_file():
 elif sys.platform != "darwin" and APP_ICON.is_file():
     datas.append((str(APP_ICON), "assets"))
 
+# Licenses dialog reads this at runtime; regenerate via `make licenses-report`.
+_LICENSES_REPORT = ROOT / "assets" / "licenses-report.json"
+if _LICENSES_REPORT.is_file():
+    datas.append((str(_LICENSES_REPORT), "assets"))
+
 # Widgets-only UI. collect_all(PySide6/cv2) pulls WebEngine, QML, Designer, etc.
 excludes = [
     "IPython",
