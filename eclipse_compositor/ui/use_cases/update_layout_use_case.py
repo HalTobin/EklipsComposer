@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
-from eclipse_compositor.ui.state import ScreenState
+from eclipse_compositor.ui.state import MIN_RESOLUTION, ScreenState
 
 
 @dataclass(frozen=True)
@@ -16,13 +16,14 @@ class UpdateLayoutUseCase:
         next_state = state
 
         if crop_size is not None:
-            next_state = replace(next_state, crop_size=crop_size)
+            capped = max(MIN_RESOLUTION, min(int(crop_size), state.native_max_resolution))
+            next_state = replace(next_state, crop_size=capped)
         if spacing is not None:
             next_state = replace(next_state, spacing=spacing)
         if layout is not None:
             next_state = replace(next_state, layout=layout)
         if arc_angle is not None:
-            next_state = replace(next_state, arc_angle=arc_angle)
+            next_state = replace(next_state, arc_angle=max(-180.0, min(180.0, float(arc_angle))))
         if direction is not None:
             next_state = replace(next_state, direction=direction)
         if threshold is not None:

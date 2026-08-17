@@ -73,9 +73,6 @@ from eclipse_compositor.ui.state import (
     DEFAULT_MAX_RESOLUTION,
     DEFAULT_SATURATION,
     DEFAULT_TEMPERATURE,
-    MAX_MARGIN,
-    MIN_MARGIN,
-    MIN_RESOLUTION,
     BlockingJob,
     JobStatus,
     ScreenState,
@@ -310,25 +307,20 @@ class ScreenViewModel(QObject):
                 self._schedule_preview()
 
             case UpdateCropSize(value=value):
-                capped = max(
-                    MIN_RESOLUTION,
-                    min(int(value), self._state.native_max_resolution),
-                )
-                self._emit(replace(self._state, crop_size=capped))
+                self._emit(self.use_cases.update_layout.invoke(self._state, crop_size=int(value)))
                 self._schedule_preview()
 
             case UpdateSpacing(value=value):
-                self._emit(replace(self._state, spacing=float(value)))
+                self._emit(self.use_cases.update_layout.invoke(self._state, spacing=float(value)))
                 self._schedule_preview()
 
             case UpdateLayout(value=value):
                 layout = value if isinstance(value, LayoutType) else LayoutType(value)
-                self._emit(replace(self._state, layout=layout))
+                self._emit(self.use_cases.update_layout.invoke(self._state, layout=layout))
                 self._schedule_preview()
 
             case UpdateArcAngle(value=value):
-                angle = max(-180.0, min(180.0, float(value)))
-                self._emit(replace(self._state, arc_angle=angle))
+                self._emit(self.use_cases.update_layout.invoke(self._state, arc_angle=float(value)))
                 self._schedule_preview()
 
             case UpdateDirection(value=value):
@@ -337,27 +329,26 @@ class ScreenViewModel(QObject):
                     if isinstance(value, LayoutDirection)
                     else LayoutDirection(value)
                 )
-                self._emit(replace(self._state, direction=direction))
+                self._emit(self.use_cases.update_layout.invoke(self._state, direction=direction))
                 self._schedule_preview()
 
             case UpdateThreshold(value=value):
-                self._emit(replace(self._state, threshold=int(value)))
+                self._emit(self.use_cases.update_layout.invoke(self._state, threshold=int(value)))
                 self._schedule_preview()
 
             case UpdateGridColumns(value=value):
-                self._emit(replace(self._state, grid_columns=max(1, int(value))))
+                self._emit(self.use_cases.update_layout.invoke(self._state, grid_columns=int(value)))
                 self._schedule_preview()
 
             case UpdateGridRows(value=value):
-                self._emit(replace(self._state, grid_rows=max(1, int(value))))
+                self._emit(self.use_cases.update_layout.invoke(self._state, grid_rows=int(value)))
                 self._schedule_preview()
 
             case UpdateZoom(value=value):
-                # Allow very small fit-to-view scales for large composites.
-                zoom = max(0.01, min(8.0, float(value)))
-                if abs(zoom - self._state.zoom) < 1e-6:
+                next_state = self.use_cases.update_zoom.invoke(self._state, float(value))
+                if next_state is self._state:
                     return
-                self._emit(replace(self._state, zoom=zoom))
+                self._emit(next_state)
 
             case SelectSidebarTab(value=value):
                 tab = value if isinstance(value, SidebarTab) else SidebarTab(value)
@@ -366,37 +357,23 @@ class ScreenViewModel(QObject):
                 self._emit(replace(self._state, sidebar_tab=tab))
 
             case UpdateContrast(value=value):
-                self._emit(
-                    replace(self._state, contrast=max(0.5, min(2.0, float(value))))
-                )
+                self._emit(self.use_cases.update_colorimetry.invoke(self._state, contrast=float(value)))
                 self._schedule_preview()
 
             case UpdateSaturation(value=value):
-                self._emit(
-                    replace(self._state, saturation=max(0.0, min(2.0, float(value))))
-                )
+                self._emit(self.use_cases.update_colorimetry.invoke(self._state, saturation=float(value)))
                 self._schedule_preview()
 
             case UpdateBrightness(value=value):
-                self._emit(
-                    replace(
-                        self._state, brightness=max(-100.0, min(100.0, float(value)))
-                    )
-                )
+                self._emit(self.use_cases.update_colorimetry.invoke(self._state, brightness=float(value)))
                 self._schedule_preview()
 
             case UpdateGamma(value=value):
-                self._emit(
-                    replace(self._state, gamma=max(0.5, min(2.0, float(value))))
-                )
+                self._emit(self.use_cases.update_colorimetry.invoke(self._state, gamma=float(value)))
                 self._schedule_preview()
 
             case UpdateTemperature(value=value):
-                self._emit(
-                    replace(
-                        self._state, temperature=max(-100.0, min(100.0, float(value)))
-                    )
-                )
+                self._emit(self.use_cases.update_colorimetry.invoke(self._state, temperature=float(value)))
                 self._schedule_preview()
 
             case ResetColorimetry():
@@ -409,37 +386,22 @@ class ScreenViewModel(QObject):
                 )
                 if already_default:
                     return
-                self._emit(
-                    replace(
-                        self._state,
-                        contrast=DEFAULT_CONTRAST,
-                        saturation=DEFAULT_SATURATION,
-                        brightness=DEFAULT_BRIGHTNESS,
-                        gamma=DEFAULT_GAMMA,
-                        temperature=DEFAULT_TEMPERATURE,
-                    )
-                )
+                self._emit(self.use_cases.update_colorimetry.invoke(self._state, reset=True))
                 self._schedule_preview()
 
             case UpdateMaskEnabled(value=value):
                 enabled = bool(value)
                 if enabled == self._state.mask_enabled:
                     return
-                self._emit(replace(self._state, mask_enabled=enabled))
+                self._emit(self.use_cases.update_mask.invoke(self._state, enabled=enabled))
                 self._schedule_preview()
 
             case UpdateMaskSize(value=value):
-                self._emit(
-                    replace(self._state, mask_size=max(0.0, min(1.50, float(value))))
-                )
+                self._emit(self.use_cases.update_mask.invoke(self._state, size=float(value)))
                 self._schedule_preview()
 
             case UpdateMaskFeather(value=value):
-                self._emit(
-                    replace(
-                        self._state, mask_feather=max(0.0, min(0.80, float(value)))
-                    )
-                )
+                self._emit(self.use_cases.update_mask.invoke(self._state, feather=float(value)))
                 self._schedule_preview()
 
             case UpdateMarginLinked(value=value):
@@ -448,7 +410,7 @@ class ScreenViewModel(QObject):
                     return
                 if linked:
                     self._emit(
-                        replace(
+                        self.use_cases.update_canvas.invoke(
                             self._state,
                             margin_linked=True,
                             margin_y=self._state.margin_x,
@@ -456,42 +418,36 @@ class ScreenViewModel(QObject):
                     )
                     self._schedule_preview()
                 else:
-                    self._emit(replace(self._state, margin_linked=False))
+                    self._emit(
+                        self.use_cases.update_canvas.invoke(self._state, margin_linked=False)
+                    )
 
             case UpdateMarginGlobal(value=value):
-                margin = max(MIN_MARGIN, min(MAX_MARGIN, int(value)))
                 self._emit(
-                    replace(
-                        self._state,
-                        margin_linked=True,
-                        margin_x=margin,
-                        margin_y=margin,
-                    )
+                    self.use_cases.update_canvas.invoke(self._state, margin_global=int(value))
                 )
                 self._schedule_preview()
 
             case UpdateMarginX(value=value):
-                margin = max(MIN_MARGIN, min(MAX_MARGIN, int(value)))
                 if self._state.margin_linked:
                     self._emit(
-                        replace(
-                            self._state, margin_x=margin, margin_y=margin
-                        )
+                        self.use_cases.update_canvas.invoke(self._state, margin_global=int(value))
                     )
                 else:
-                    self._emit(replace(self._state, margin_x=margin))
+                    self._emit(
+                        self.use_cases.update_canvas.invoke(self._state, margin_x=int(value))
+                    )
                 self._schedule_preview()
 
             case UpdateMarginY(value=value):
-                margin = max(MIN_MARGIN, min(MAX_MARGIN, int(value)))
                 if self._state.margin_linked:
                     self._emit(
-                        replace(
-                            self._state, margin_x=margin, margin_y=margin
-                        )
+                        self.use_cases.update_canvas.invoke(self._state, margin_global=int(value))
                     )
                 else:
-                    self._emit(replace(self._state, margin_y=margin))
+                    self._emit(
+                        self.use_cases.update_canvas.invoke(self._state, margin_y=int(value))
+                    )
                 self._schedule_preview()
 
             case RequestPreview():
