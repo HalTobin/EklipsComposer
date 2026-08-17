@@ -30,6 +30,15 @@ class UpdateColorimetryUseCase:
         reset: bool = False,
     ) -> ScreenState:
         if reset:
+            already_default = (
+                abs(state.contrast - DEFAULT_CONTRAST) < 1e-6
+                and abs(state.saturation - DEFAULT_SATURATION) < 1e-6
+                and abs(state.brightness - DEFAULT_BRIGHTNESS) < 1e-6
+                and abs(state.gamma - DEFAULT_GAMMA) < 1e-6
+                and abs(state.temperature - DEFAULT_TEMPERATURE) < 1e-6
+            )
+            if already_default:
+                return state
             return replace(
                 state,
                 contrast=DEFAULT_CONTRAST,

@@ -67,16 +67,10 @@ from eclipse_compositor.ui.actions import (
 )
 from eclipse_compositor.ui.project_mapping import blueprint_from_state, state_from_document
 from eclipse_compositor.ui.state import (
-    DEFAULT_BRIGHTNESS,
-    DEFAULT_CONTRAST,
-    DEFAULT_GAMMA,
     DEFAULT_MAX_RESOLUTION,
-    DEFAULT_SATURATION,
-    DEFAULT_TEMPERATURE,
     BlockingJob,
     JobStatus,
     ScreenState,
-    SidebarTab,
     default_state,
     enabled_paths,
     native_max_from_shapes,
@@ -225,17 +219,7 @@ class ScreenViewModel(QObject):
         index: int | None,
     ) -> ScreenState:
         """Attach the proxy preview for *index* (or clear if none)."""
-        images = state.images
-        if index is not None and not (0 <= index < len(images)):
-            index = None
-        preview = None
-        if index is not None:
-            preview = self._assets.proxy(images[index].path)
-        return replace(
-            state,
-            selected_index=index,
-            selected_preview_bgr=preview,
-        )
+        return self.use_cases.select_image.invoke(state, index, self._assets.proxy_cache)
 
     def _compose_params(self) -> ComposeParams:
         return params_from_state(self._state)
@@ -351,10 +335,10 @@ class ScreenViewModel(QObject):
                 self._emit(next_state)
 
             case SelectSidebarTab(value=value):
-                tab = value if isinstance(value, SidebarTab) else SidebarTab(value)
-                if tab == self._state.sidebar_tab:
+                next_state = self.use_cases.select_sidebar_tab.invoke(self._state, value)
+                if next_state is self._state:
                     return
-                self._emit(replace(self._state, sidebar_tab=tab))
+                self._emit(next_state)
 
             case UpdateContrast(value=value):
                 self._emit(self.use_cases.update_colorimetry.invoke(self._state, contrast=float(value)))
@@ -377,16 +361,10 @@ class ScreenViewModel(QObject):
                 self._schedule_preview()
 
             case ResetColorimetry():
-                already_default = (
-                    abs(self._state.contrast - DEFAULT_CONTRAST) < 1e-6
-                    and abs(self._state.saturation - DEFAULT_SATURATION) < 1e-6
-                    and abs(self._state.brightness - DEFAULT_BRIGHTNESS) < 1e-6
-                    and abs(self._state.gamma - DEFAULT_GAMMA) < 1e-6
-                    and abs(self._state.temperature - DEFAULT_TEMPERATURE) < 1e-6
-                )
-                if already_default:
+                next_state = self.use_cases.update_colorimetry.invoke(self._state, reset=True)
+                if next_state is self._state:
                     return
-                self._emit(self.use_cases.update_colorimetry.invoke(self._state, reset=True))
+                self._emit(next_state)
                 self._schedule_preview()
 
             case UpdateMaskEnabled(value=value):
@@ -476,13 +454,7 @@ class ScreenViewModel(QObject):
                 ):
                     return
                 self._job_cancel.set()
-                self._emit(
-                    replace(
-                        self._state,
-                        blocking_job_cancelling=True,
-                        status_message="Cancelling…",
-                    )
-                )
+                self._emit(self.use_cases.cancel_job.invoke(self._state))
 
             case BlockingJobCancelled(token=token):
                 if token is not self._job_cancel:
@@ -688,22 +660,14 @@ class ScreenViewModel(QObject):
         self._pool.start(worker)
 
     def _start_save(self, output_path: Path) -> None:
-        if not self._state.images:
+        next_state = self.use_cases.save_project.invoke(self._state, output_path)
+        if next_state is self._state:
             self.dispatch(SaveProjectFailed("No frames to save."))
             return
         cancel = threading.Event()
         self._job_cancel = cancel
         self._emit(
-            replace(
-                self._state,
-                export_status=JobStatus.RUNNING,
-                blocking_job=BlockingJob.SAVE,
-                blocking_job_path=output_path,
-                blocking_job_cancelling=False,
-                progress=0.0,
-                status_message="Saving project…",
-                error_message=None,
-            )
+            replace(next_state, blocking_job=BlockingJob.SAVE, blocking_job_cancelling=False)
         )
         worker = ProjectSaveWorker(
             blueprint_from_state(self._state),
@@ -718,16 +682,12 @@ class ScreenViewModel(QObject):
         staging_dir = self._assets.begin_open_staging()
         cancel = threading.Event()
         self._job_cancel = cancel
+        next_state = self.use_cases.open_project.invoke(self._state, archive_path)
         self._emit(
             replace(
-                self._state,
-                import_status=JobStatus.RUNNING,
+                next_state,
                 blocking_job=BlockingJob.OPEN,
-                blocking_job_path=archive_path,
                 blocking_job_cancelling=False,
-                progress=0.0,
-                status_message="Opening project…",
-                error_message=None,
                 _proxy_generation=gen,
             )
         )
@@ -810,17 +770,9 @@ class ScreenViewModel(QObject):
             return
         cancel = threading.Event()
         self._job_cancel = cancel
+        next_state = self.use_cases.export_composite.invoke(self._state, output_path)
         self._emit(
-            replace(
-                self._state,
-                export_status=JobStatus.RUNNING,
-                blocking_job=BlockingJob.EXPORT,
-                blocking_job_path=output_path,
-                blocking_job_cancelling=False,
-                progress=0.0,
-                status_message="Exporting…",
-                error_message=None,
-            )
+            replace(next_state, blocking_job=BlockingJob.EXPORT, blocking_job_cancelling=False)
         )
         worker = ExportWorker(
             paths,
