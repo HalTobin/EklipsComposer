@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import logging
-import tempfile
 import threading
 from dataclasses import replace
 from pathlib import Path
 
-import numpy as np
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
@@ -86,6 +84,7 @@ from eclipse_compositor.ui.state import (
     enabled_paths,
     native_max_from_shapes,
 )
+from eclipse_compositor.session_assets import InMemorySessionAssetRepository, SessionAssetRepository
 from eclipse_compositor.ui.use_cases import UseCases
 from eclipse_compositor.ui.workers import (
     ExportWorker,
@@ -111,17 +110,13 @@ class ScreenViewModel(QObject):
         self,
         parent: QObject | None = None,
         use_cases: UseCases | None = None,
+        session_assets: SessionAssetRepository | None = None,
     ) -> None:
         super().__init__(parent)
         self.use_cases = use_cases or UseCases()
         self._state: ScreenState = default_state()
         self._pool = QThreadPool.globalInstance()
-        self._proxy_cache: dict[Path, np.ndarray] = {}
-        self._full_shapes: dict[Path, tuple[int, int]] = {}
-        self._video_tmpdir: tempfile.TemporaryDirectory[str] | None = None
-        self._thumb_tmpdir: tempfile.TemporaryDirectory[str] | None = None
-        self._project_tmpdir: tempfile.TemporaryDirectory[str] | None = None
-        self._open_staging: tempfile.TemporaryDirectory[str] | None = None
+        self._assets: SessionAssetRepository = session_assets or InMemorySessionAssetRepository()
         self._clean_blueprint: ProjectBlueprint | None = None
         self._job_cancel: threading.Event | None = None
         self._preview_debounce = QTimer(self)
@@ -238,7 +233,7 @@ class ScreenViewModel(QObject):
             index = None
         preview = None
         if index is not None:
-            preview = self._proxy_cache.get(images[index].path)
+            preview = self._assets.proxy(images[index].path)
         return replace(
             state,
             selected_index=index,
@@ -260,12 +255,7 @@ class ScreenViewModel(QObject):
                 self._start_import(list(paths), video_frame_step=video_frame_step)
 
             case ClearImages():
-                self._proxy_cache.clear()
-                self._full_shapes.clear()
-                self._clear_video_tmpdir()
-                self._clear_thumb_tmpdir()
-                self._clear_project_tmpdir()
-                self._clear_open_staging()
+                self._assets.clear()
                 self._clean_blueprint = None
                 self._emit(self.use_cases.clear_images.invoke(self._state))
 
@@ -286,21 +276,11 @@ class ScreenViewModel(QObject):
                 if next_state is self._state:
                     return
 
-                for path in list(self._proxy_cache):
-                    if path not in {item.path for item in next_state.images}:
-                        self._proxy_cache.pop(path, None)
-                for path in list(self._full_shapes):
-                    if path not in {item.path for item in next_state.images}:
-                        self._full_shapes.pop(path, None)
+                self._assets.discard({item.path for item in next_state.images})
 
                 self._emit(self._with_selected_frame(next_state, next_state.selected_index))
                 if not next_state.images:
-                    self._proxy_cache.clear()
-                    self._full_shapes.clear()
-                    self._clear_video_tmpdir()
-                    self._clear_thumb_tmpdir()
-                    self._clear_project_tmpdir()
-                    self._clear_open_staging()
+                    self._assets.clear()
                     self._clean_blueprint = None
                     self._emit(
                         replace(
@@ -554,7 +534,7 @@ class ScreenViewModel(QObject):
                 was_open = self._state.blocking_job == BlockingJob.OPEN
                 self._job_cancel = None
                 if was_open:
-                    self._clear_open_staging()
+                    self._assets.discard_open_staging()
                 self._emit(self.use_cases.blocking_job_cancelled.invoke(self._state))
 
             case ImportProgress(progress=progress, message=message):
@@ -569,7 +549,7 @@ class ScreenViewModel(QObject):
             case ImportFinished(images=images, generation=generation):
                 if generation != self._state._proxy_generation:
                     return
-                native_max = native_max_from_shapes(self._full_shapes)
+                native_max = native_max_from_shapes(self._assets.full_shapes)
                 next_state = self.use_cases.import_finished.invoke(
                     self._state,
                     images,
@@ -683,7 +663,7 @@ class ScreenViewModel(QObject):
                 if generation != self._state._proxy_generation:
                     return
                 if not isinstance(result, ProjectOpenResult):
-                    self._clear_open_staging()
+                    self._assets.discard_open_staging()
                     self._job_cancel = None
                     self._emit(
                         self._without_blocking_job(
@@ -699,7 +679,7 @@ class ScreenViewModel(QObject):
             case OpenProjectFailed(message=message, generation=generation):
                 if generation != self._state._proxy_generation:
                     return
-                self._clear_open_staging()
+                self._assets.discard_open_staging()
                 self._job_cancel = None
                 self._emit(
                     self.use_cases.open_project_failed.invoke(self._state, message)
@@ -738,74 +718,18 @@ class ScreenViewModel(QObject):
         )
         frame_dir = None
         if any(is_supported_video(path) for path in paths):
-            frame_dir = self._ensure_video_tmpdir()
+            frame_dir = self._assets.video_frame_dir()
         worker = ImportWorker(
             paths,
-            self._proxy_cache,
-            self._full_shapes,
+            self._assets.proxy_cache,
+            self._assets.full_shapes,
             gen,
             self._import_signals,
             frame_dir=frame_dir,
-            thumb_dir=self._ensure_thumb_tmpdir(),
+            thumb_dir=self._assets.thumb_dir(),
             video_frame_step=video_frame_step,
         )
         self._pool.start(worker)
-
-    def _ensure_video_tmpdir(self) -> Path:
-        """Return the directory used to persist extracted video stills."""
-        if self._video_tmpdir is None:
-            self._video_tmpdir = tempfile.TemporaryDirectory(
-                prefix="eklipscomposer_frames_"
-            )
-        return Path(self._video_tmpdir.name)
-
-    def _ensure_thumb_tmpdir(self) -> Path:
-        """Return the directory used to persist gallery list thumbnails."""
-        if self._thumb_tmpdir is None:
-            self._thumb_tmpdir = tempfile.TemporaryDirectory(
-                prefix="eklipscomposer_thumbs_"
-            )
-        return Path(self._thumb_tmpdir.name)
-
-    def _clear_video_tmpdir(self) -> None:
-        """Delete extracted video stills (called when the gallery is cleared)."""
-        if self._video_tmpdir is None:
-            return
-        try:
-            self._video_tmpdir.cleanup()
-        except OSError as exc:
-            logger.warning("Failed to clean up extracted video frames: %s", exc)
-        self._video_tmpdir = None
-
-    def _clear_thumb_tmpdir(self) -> None:
-        """Delete gallery thumbnails (called when the gallery is cleared)."""
-        if self._thumb_tmpdir is None:
-            return
-        try:
-            self._thumb_tmpdir.cleanup()
-        except OSError as exc:
-            logger.warning("Failed to clean up frame thumbnails: %s", exc)
-        self._thumb_tmpdir = None
-
-    def _clear_project_tmpdir(self) -> None:
-        """Delete extracted project resources (opened ``.vlt`` frames)."""
-        if self._project_tmpdir is None:
-            return
-        try:
-            self._project_tmpdir.cleanup()
-        except OSError as exc:
-            logger.warning("Failed to clean up opened project files: %s", exc)
-        self._project_tmpdir = None
-
-    def _clear_open_staging(self) -> None:
-        """Discard a failed or superseded open extract directory."""
-        if self._open_staging is None:
-            return
-        try:
-            self._open_staging.cleanup()
-        except OSError as exc:
-            logger.warning("Failed to clean up project staging files: %s", exc)
-        self._open_staging = None
 
     def _start_save(self, output_path: Path) -> None:
         if not self._state.images:
@@ -835,10 +759,7 @@ class ScreenViewModel(QObject):
 
     def _start_open(self, archive_path: Path) -> None:
         gen = self._state._proxy_generation + 1
-        self._clear_open_staging()
-        self._open_staging = tempfile.TemporaryDirectory(
-            prefix="eklipscomposer_project_"
-        )
+        staging_dir = self._assets.begin_open_staging()
         cancel = threading.Event()
         self._job_cancel = cancel
         self._emit(
@@ -856,7 +777,7 @@ class ScreenViewModel(QObject):
         )
         worker = ProjectOpenWorker(
             archive_path,
-            Path(self._open_staging.name),
+            staging_dir,
             gen,
             self._open_signals,
             cancel,
@@ -865,15 +786,8 @@ class ScreenViewModel(QObject):
 
     def _adopt_opened_project(self, result: ProjectOpenResult) -> None:
         """Swap caches and restore persistable settings after a successful open."""
-        staging = self._open_staging
-        self._open_staging = None
-        self._clear_video_tmpdir()
-        self._clear_thumb_tmpdir()
-        self._clear_project_tmpdir()
-        self._project_tmpdir = staging
-        self._proxy_cache = result.proxy_cache
-        self._full_shapes = result.full_shapes
-        native_max = native_max_from_shapes(self._full_shapes)
+        self._assets.commit_open_staging(result.proxy_cache, result.full_shapes)
+        native_max = native_max_from_shapes(self._assets.full_shapes)
         restored = state_from_document(
             result.document,
             result.images,
@@ -925,8 +839,8 @@ class ScreenViewModel(QObject):
         )
         worker = PreviewWorker(
             paths,
-            self._proxy_cache,
-            self._full_shapes,
+            self._assets.proxy_cache,
+            self._assets.full_shapes,
             self._compose_params(),
             gen,
             self._preview_signals,
