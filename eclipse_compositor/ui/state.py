@@ -8,6 +8,21 @@ from pathlib import Path
 
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 
+
+class GalleryViewMode(str, Enum):
+    """Visual density of the frame list."""
+
+    LIST_PREVIEW = "list_preview"
+    LIST_SIMPLE = "list_simple"
+    ICON = "icon"
+
+
+class GallerySortMode(str, Enum):
+    """Ordering applied to the gallery list."""
+
+    TITLE = "title"
+    DATE_TAKEN = "date_taken"
+
 # Floor for the resolution slider when no images are loaded yet.
 DEFAULT_MAX_RESOLUTION: int = 2400
 MIN_RESOLUTION: int = 200
@@ -62,6 +77,7 @@ class ImageItem:
     enabled: bool = True
     detection_ok: bool | None = None  # None = not yet evaluated
     thumbnail_path: str | None = None  # small JPEG for the gallery list icon
+    favorite: bool = False
 
 
 @dataclass(frozen=True)
@@ -101,6 +117,9 @@ class ScreenState:
     proxy_ready: bool = False
     zoom: float = 1.0
     sidebar_tab: SidebarTab = SidebarTab.COMPOSITE
+    gallery_view_mode: GalleryViewMode = GalleryViewMode.LIST_PREVIEW
+    gallery_sort_mode: GallerySortMode = GallerySortMode.TITLE
+    gallery_show_only_favorites: bool = False
     contrast: float = DEFAULT_CONTRAST
     saturation: float = DEFAULT_SATURATION
     brightness: float = DEFAULT_BRIGHTNESS

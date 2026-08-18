@@ -124,6 +124,16 @@ def _exif_datetime(path: Path) -> datetime | None:
     return None
 
 
+def exif_datetime_taken(path: Path | str) -> datetime | None:
+    """Return the EXIF capture date/time for *path*, or None.
+
+    This is a thin public wrapper around the internal EXIF reader so UI
+    layers can sort frames by when the picture was taken without reaching
+    into private loading internals.
+    """
+    return _exif_datetime(Path(path))
+
+
 def sort_chronologically(paths: list[Path]) -> list[Path]:
     """Sort paths by EXIF capture time, falling back to filename.
 

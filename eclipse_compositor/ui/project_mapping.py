@@ -46,7 +46,7 @@ def blueprint_from_state(state: ScreenState) -> ProjectBlueprint:
             feather=state.mask_feather,
         ),
         frames=tuple(
-            FrameSource(source_path=item.path, enabled=item.enabled)
+            FrameSource(source_path=item.path, enabled=item.enabled, favorite=item.favorite)
             for item in state.images
         ),
     )

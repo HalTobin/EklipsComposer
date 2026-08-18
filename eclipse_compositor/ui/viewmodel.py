@@ -10,6 +10,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal, Slot
 
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
+from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode
 from eclipse_compositor.cv.video import is_supported_video
 from eclipse_compositor.project.domain.models import ProjectBlueprint
 from eclipse_compositor.ui.actions import (
@@ -42,6 +43,8 @@ from eclipse_compositor.ui.actions import (
     ScreenAction,
     SelectImage,
     SelectSidebarTab,
+    SetAllEnabled,
+    ToggleFavorite,
     ToggleImage,
     UpdateArcAngle,
     UpdateBrightness,
@@ -49,6 +52,9 @@ from eclipse_compositor.ui.actions import (
     UpdateCropSize,
     UpdateDirection,
     UpdateGamma,
+    UpdateGalleryShowOnlyFavorites,
+    UpdateGallerySortMode,
+    UpdateGalleryViewMode,
     UpdateGridColumns,
     UpdateGridRows,
     UpdateLayout,
@@ -250,6 +256,21 @@ class ScreenViewModel(QObject):
                     self._emit(next_state)
                     self._schedule_preview()
 
+            case ToggleFavorite(index=index, favorite=favorite):
+                next_state = self.use_cases.toggle_favorite.invoke(
+                    self._state,
+                    index,
+                    favorite,
+                )
+                if next_state is not self._state:
+                    self._emit(next_state)
+
+            case SetAllEnabled(enabled=enabled):
+                next_state = self.use_cases.set_all_enabled.invoke(self._state, enabled)
+                if next_state is not self._state:
+                    self._emit(next_state)
+                    self._schedule_preview()
+
             case RemoveImage(indices=indices):
                 if not indices:
                     return
@@ -336,6 +357,42 @@ class ScreenViewModel(QObject):
 
             case SelectSidebarTab(value=value):
                 next_state = self.use_cases.select_sidebar_tab.invoke(self._state, value)
+                if next_state is self._state:
+                    return
+                self._emit(next_state)
+
+            case UpdateGalleryViewMode(value=value):
+                mode = (
+                    value
+                    if isinstance(value, GalleryViewMode)
+                    else GalleryViewMode(value)
+                )
+                next_state = self.use_cases.update_gallery_view_mode.invoke(
+                    self._state, mode
+                )
+                if next_state is self._state:
+                    return
+                self._emit(next_state)
+
+            case UpdateGallerySortMode(value=value):
+                mode = (
+                    value
+                    if isinstance(value, GallerySortMode)
+                    else GallerySortMode(value)
+                )
+
+                next_state = self.use_cases.update_gallery_sort_mode.invoke(
+                    self._state, mode
+                )
+                if next_state is self._state:
+                    return
+                self._emit(self._with_selected_frame(next_state, next_state.selected_index))
+                self._schedule_preview()
+
+            case UpdateGalleryShowOnlyFavorites(value=value):
+                next_state = self.use_cases.update_gallery_show_only_favorites.invoke(
+                    self._state, value
+                )
                 if next_state is self._state:
                     return
                 self._emit(next_state)

@@ -65,6 +65,7 @@ class FrameSource:
 
     source_path: Path
     enabled: bool
+    favorite: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,7 @@ class FrameRecord:
 
     file: str
     enabled: bool
+    favorite: bool = False
 
 
 @dataclass(frozen=True)

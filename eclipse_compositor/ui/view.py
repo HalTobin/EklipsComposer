@@ -36,6 +36,8 @@ from eclipse_compositor.ui.actions import (
     SaveProject,
     SelectImage,
     SelectSidebarTab,
+    SetAllEnabled,
+    ToggleFavorite,
     ToggleImage,
     UpdateArcAngle,
     UpdateBrightness,
@@ -43,6 +45,9 @@ from eclipse_compositor.ui.actions import (
     UpdateCropSize,
     UpdateDirection,
     UpdateGamma,
+    UpdateGalleryShowOnlyFavorites,
+    UpdateGallerySortMode,
+    UpdateGalleryViewMode,
     UpdateGridColumns,
     UpdateGridRows,
     UpdateLayout,
@@ -194,6 +199,9 @@ class ScreenView(QMainWindow):
         self.gallery.toggle_image.connect(
             lambda i, e: self.view_model.dispatch(ToggleImage(i, e))
         )
+        self.gallery.toggle_favorite.connect(
+            lambda i, f: self.view_model.dispatch(ToggleFavorite(i, f))
+        )
         self.gallery.remove_clicked.connect(
             lambda indices: self.view_model.dispatch(
                 RemoveImage(tuple(indices) if isinstance(indices, tuple) else (indices,))
@@ -206,6 +214,21 @@ class ScreenView(QMainWindow):
             lambda images: self.view_model.dispatch(ReorderImages(tuple(images)))
         )
         self.gallery.files_dropped.connect(self._import_paths)
+        self.gallery.view_mode_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateGalleryViewMode(v))
+        )
+        self.gallery.sort_mode_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateGallerySortMode(v))
+        )
+        self.gallery.show_only_favorites_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateGalleryShowOnlyFavorites(v))
+        )
+        self.gallery.select_all_clicked.connect(
+            lambda: self.view_model.dispatch(SetAllEnabled(True))
+        )
+        self.gallery.unselect_all_clicked.connect(
+            lambda: self.view_model.dispatch(SetAllEnabled(False))
+        )
         self.viewport.files_dropped.connect(self._import_paths)
         self.viewport.zoom_changed.connect(
             lambda z: self.view_model.dispatch(UpdateZoom(z))

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
-from eclipse_compositor.ui.state import ImageItem
+from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode, ImageItem
 
 
 class ScreenAction:
@@ -53,6 +53,42 @@ class ReorderImages(ScreenAction):
     """Replace the image list order (after drag-sort or chronological re-sort)."""
 
     images: tuple[ImageItem, ...]
+
+
+@dataclass(frozen=True)
+class ToggleFavorite(ScreenAction):
+    """Mark or unmark a gallery frame as favorite by index."""
+
+    index: int
+    favorite: bool
+
+
+@dataclass(frozen=True)
+class SetAllEnabled(ScreenAction):
+    """Check or uncheck every gallery frame's enable checkbox."""
+
+    enabled: bool
+
+
+@dataclass(frozen=True)
+class UpdateGalleryViewMode(ScreenAction):
+    """Switch between list-with-preview, simple list, and icon views."""
+
+    value: GalleryViewMode
+
+
+@dataclass(frozen=True)
+class UpdateGallerySortMode(ScreenAction):
+    """Sort frames by title or EXIF capture date."""
+
+    value: GallerySortMode
+
+
+@dataclass(frozen=True)
+class UpdateGalleryShowOnlyFavorites(ScreenAction):
+    """Filter the gallery to favorites and currently selected frame(s)."""
+
+    value: bool
 
 
 @dataclass(frozen=True)

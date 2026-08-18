@@ -50,7 +50,7 @@ def encode_composition(document: ProjectDocument) -> str:
             "feather": document.mask.feather,
         },
         "frames": [
-            {"file": frame.file, "enabled": frame.enabled}
+            {"file": frame.file, "enabled": frame.enabled, "favorite": frame.favorite}
             for frame in document.frames
         ],
     }
@@ -202,6 +202,9 @@ def _parse_frames(value: Any) -> tuple[FrameRecord, ...]:
             FrameRecord(
                 file=file_name,
                 enabled=_as_bool(item.get("enabled"), f"frames[{i}].enabled"),
+                favorite=_optional_bool(
+                    item, "favorite", False, f"frames[{i}].favorite"
+                ),
             )
         )
     return tuple(frames)

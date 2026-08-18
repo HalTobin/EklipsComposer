@@ -48,6 +48,7 @@ def cache_imported_frame(
     thumb_dir: Path | None,
     *,
     enabled: bool = True,
+    favorite: bool = False,
     max_edge: int = 1080,
 ) -> ImageItem:
     """Store proxy + native shape for one still and return its gallery item."""
@@ -63,7 +64,7 @@ def cache_imported_frame(
             thumb_path = str(dest)
         except OSError as exc:
             logger.warning("Thumbnail failed for %s: %s", path, exc)
-    return ImageItem(path=path, enabled=enabled, thumbnail_path=thumb_path)
+    return ImageItem(path=path, enabled=enabled, favorite=favorite, thumbnail_path=thumb_path)
 
 
 def _thumb_dest(thumb_dir: Path, path: Path) -> Path:
@@ -403,6 +404,7 @@ class ProjectOpenWorker(QRunnable):
                         full_shapes,
                         thumb_dir,
                         enabled=record.enabled,
+                        favorite=record.favorite,
                         max_edge=self.max_edge,
                     )
                 )

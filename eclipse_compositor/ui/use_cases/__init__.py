@@ -27,8 +27,13 @@ from eclipse_compositor.ui.use_cases.save_project_progress_use_case import SaveP
 from eclipse_compositor.ui.use_cases.save_project_use_case import SaveProjectUseCase
 from eclipse_compositor.ui.use_cases.select_image_use_case import SelectImageUseCase
 from eclipse_compositor.ui.use_cases.select_sidebar_tab_use_case import SelectSidebarTabUseCase
+from eclipse_compositor.ui.use_cases.set_all_enabled_use_case import SetAllEnabledUseCase
+from eclipse_compositor.ui.use_cases.toggle_favorite_use_case import ToggleFavoriteUseCase
 from eclipse_compositor.ui.use_cases.toggle_image_use_case import ToggleImageUseCase
 from eclipse_compositor.ui.use_cases.update_canvas_use_case import UpdateCanvasUseCase
+from eclipse_compositor.ui.use_cases.update_gallery_show_only_favorites_use_case import UpdateGalleryShowOnlyFavoritesUseCase
+from eclipse_compositor.ui.use_cases.update_gallery_sort_mode_use_case import UpdateGallerySortModeUseCase
+from eclipse_compositor.ui.use_cases.update_gallery_view_mode_use_case import UpdateGalleryViewModeUseCase
 from eclipse_compositor.ui.use_cases.update_colorimetry_use_case import UpdateColorimetryUseCase
 from eclipse_compositor.ui.use_cases.update_layout_use_case import UpdateLayoutUseCase
 from eclipse_compositor.ui.use_cases.update_mask_use_case import UpdateMaskUseCase
@@ -63,9 +68,14 @@ __all__ = [
     "SaveProjectUseCase",
     "SelectImageUseCase",
     "SelectSidebarTabUseCase",
+    "SetAllEnabledUseCase",
+    "ToggleFavoriteUseCase",
     "ToggleImageUseCase",
     "UpdateCanvasUseCase",
     "UpdateColorimetryUseCase",
+    "UpdateGalleryShowOnlyFavoritesUseCase",
+    "UpdateGallerySortModeUseCase",
+    "UpdateGalleryViewModeUseCase",
     "UpdateLayoutUseCase",
     "UpdateMaskUseCase",
     "UpdateZoomUseCase",

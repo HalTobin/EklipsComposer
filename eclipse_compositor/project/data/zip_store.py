@@ -69,7 +69,9 @@ class ZipProjectRepository:
                         f"Packing {frame.source_path.name}…",
                     )
                     zf.write(frame.source_path, arcname=arcname)
-                    records.append(FrameRecord(file=arcname, enabled=frame.enabled))
+                    records.append(
+                        FrameRecord(file=arcname, enabled=frame.enabled, favorite=frame.favorite)
+                    )
                 document = ProjectDocument(
                     version=FORMAT_VERSION,
                     composite=blueprint.composite,
