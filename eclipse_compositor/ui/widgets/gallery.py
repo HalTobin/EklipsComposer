@@ -364,7 +364,7 @@ class GalleryBar(QWidget):
         star = _STAR_ON if item.favorite else _STAR_OFF
         label = item.path.name
         if item.detection_ok is True:
-            return f"{star} ✓ {label}"
+            return f"{star} {label}"
         if item.detection_ok is False:
             return f"{star} ✗ {label}"
         return f"{star} {label}"
@@ -372,7 +372,7 @@ class GalleryBar(QWidget):
     def _simple_row_label(self, item: ImageItem) -> str:
         star = _STAR_ON if item.favorite else _STAR_OFF
         if item.detection_ok is True:
-            return f"{star} ✓ {item.path.name}"
+            return f"{star} {item.path.name}"
         if item.detection_ok is False:
             return f"{star} ✗ {item.path.name}"
         return f"{star} {item.path.name}"
