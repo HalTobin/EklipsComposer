@@ -25,6 +25,19 @@ class TestUpdateLayoutUseCase:
 
         assert next_state.layout == LayoutType.ARC
 
+    def test_updates_layout_type_to_circle(self) -> None:
+        """Test updating the layout type to CIRCLE."""
+        state = ScreenState(
+            layout=LayoutType.LINEAR,
+        )
+
+        next_state = UpdateLayoutUseCase().invoke(
+            state,
+            layout=LayoutType.CIRCLE,
+        )
+
+        assert next_state.layout == LayoutType.CIRCLE
+
     def test_updates_direction(self) -> None:
         """Test updating the layout direction."""
         state = ScreenState(

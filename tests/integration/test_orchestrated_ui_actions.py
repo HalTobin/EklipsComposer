@@ -147,6 +147,10 @@ class TestLayoutAndPreviewActionOrchestration(_BaseScreenActionTests):
         assert self.vm.state.sidebar_tab is SidebarTab.CANVAS
         assert states and states[-1].layout is LayoutType.LINEAR
 
+        self.vm.dispatch(UpdateLayout(LayoutType.CIRCLE))
+        assert self.vm.state.layout is LayoutType.CIRCLE
+        assert states[-1].layout is LayoutType.CIRCLE
+
 
 class TestColorimetryAndMaskActionOrchestration(_BaseScreenActionTests):
     def test_colorimetry_and_mask_actions_are_applied_and_reset(self) -> None:

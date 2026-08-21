@@ -11,7 +11,7 @@ PROJECT_SUFFIX: str = ".vlt"
 COMPOSITION_FILENAME: str = "composition.json"
 RESOURCE_DIR: str = "res"
 
-ALLOWED_LAYOUTS: frozenset[str] = frozenset({"linear", "arc", "grid"})
+ALLOWED_LAYOUTS: frozenset[str] = frozenset({"linear", "arc", "grid", "circle"})
 ALLOWED_DIRECTIONS: frozenset[str] = frozenset(
     {"horizontal", "diagonal", "vertical", "diagonal_reverse"}
 )

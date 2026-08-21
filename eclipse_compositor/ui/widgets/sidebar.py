@@ -187,6 +187,7 @@ class Sidebar(QWidget):
                 ("Linear", LayoutType.LINEAR),
                 ("Arc", LayoutType.ARC),
                 ("Grid", LayoutType.GRID),
+                ("Circle", LayoutType.CIRCLE),
             ),
         )
         self.direction_field = ComboField(

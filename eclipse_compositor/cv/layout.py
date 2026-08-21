@@ -1,7 +1,7 @@
 """Layout math for placing cropped discs on the composite canvas.
 
 Layout generation is intentionally decoupled from image processing so linear,
-arc, and grid placements can be swapped freely. Direction (horizontal, vertical,
+arc, grid, and circle placements can be swapped freely. Direction (horizontal, vertical,
 diagonal) is applied as a rigid rotation so every family shares the same spacing.
 """
 
@@ -19,6 +19,7 @@ class LayoutType(str, Enum):
     LINEAR = "linear"
     ARC = "arc"
     GRID = "grid"
+    CIRCLE = "circle"
 
 
 class LayoutDirection(str, Enum):
@@ -153,6 +154,47 @@ def arc_positions(
     return positions
 
 
+def circle_positions(
+    count: int,
+    frame_size: int,
+    spacing: float,
+    origin: tuple[float, float] = (0.0, 0.0),
+) -> list[tuple[float, float]]:
+    """Place frames evenly spaced around a full circle.
+
+    Frames are arranged clockwise starting from 12 o'clock (top).
+    Equal angular steps around 360° give constant centre-to-centre distance,
+    with circumference determined by step size and frame count.
+
+    Args:
+        count: Number of frames.
+        frame_size: Square frame side length in pixels.
+        spacing: Gap fraction between consecutive frames along the circumference.
+        origin: Anchor applied after positions are generated.
+
+    Returns:
+        List of (x, y) top-left coordinates for each frame.
+    """
+    if count <= 0:
+        return []
+    if count == 1:
+        return [origin]
+
+    step = frame_size * (1.0 + spacing)
+    total_arc = step * count
+    radius = total_arc / (2.0 * math.pi)
+    ox, oy = origin
+
+    positions: list[tuple[float, float]] = []
+    for i in range(count):
+        # Image y increases downward: start at 12 o'clock (-pi/2) and rotate clockwise.
+        phi = -math.pi / 2.0 + 2.0 * math.pi * (i / count)
+        x = radius * math.cos(phi)
+        y = radius * math.sin(phi)
+        positions.append((ox + x, oy + y))
+    return positions
+
+
 def grid_positions(
     count: int,
     frame_size: int,
@@ -232,12 +274,12 @@ def generate_positions(
     """Dispatch to the selected layout function and apply *direction*.
 
     Args:
-        layout: Arrangement family (linear, arc, or grid).
+        layout: Arrangement family (linear, arc, grid, or circle).
         count: Number of frames.
         frame_size: Square crop size.
         spacing: Inter-frame gap fraction.
         arc_angle: Signed circular-arc sweep in degrees (ignored unless arc).
-        direction: Orientation applied to linear and arc layouts.
+        direction: Orientation applied to linear, arc, and circle layouts.
         grid_columns: Grid column count (ignored unless grid).
         grid_rows: Grid row count (ignored unless grid).
         origin: Layout origin.
@@ -249,7 +291,9 @@ def generate_positions(
         return grid_positions(
             count, frame_size, spacing, grid_columns, grid_rows, origin
         )
-    if layout == LayoutType.ARC:
+    if layout == LayoutType.CIRCLE:
+        positions = circle_positions(count, frame_size, spacing, origin)
+    elif layout == LayoutType.ARC:
         positions = arc_positions(count, frame_size, spacing, arc_angle, origin)
     else:
         positions = linear_positions(count, frame_size, spacing, origin)
