@@ -107,16 +107,40 @@ class StatusBanner(QLabel):
         self.setVisible(bool(text.strip()))
 
 
+def _icon_from_svg(file: Path, size: int) -> QIcon:
+    """Render an SVG to a QIcon using QtSvg (no platform image plugin needed)."""
+    try:
+        from PySide6.QtCore import QRectF
+        from PySide6.QtSvg import QSvgRenderer
+    except Exception:  # noqa: BLE001
+        return QIcon()
+    renderer = QSvgRenderer(str(file))
+    if not renderer.isValid():
+        return QIcon()
+    pix = QPixmap(size, size)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    renderer.render(painter, QRectF(0, 0, size, size))
+    painter.end()
+    if pix.isNull():
+        return QIcon()
+    return QIcon(pix)
+
+
 def qicon_from_path(path: Path | str, *, size: int = 256) -> QIcon:
     """Load *path* via Pillow so frozen builds don't need Qt image plugins.
 
-    The packaged app strips ``libqicns`` / ``libqico`` / ``libqsvg``. PNG is
-    built into QtGui, but decoding here keeps alpha and one code path for
-    every format Pillow can read.
+    SVGs are rendered with ``QSvgRenderer`` because Pillow cannot read them.
+    The packaged app strips ``libqicns`` / ``libqico`` / ``libqsvg``; SVGs
+    loaded through this helper will still work as long as the ``PySide6.QtSvg``
+    module is bundled. For raster formats, PNG is built into QtGui, but
+    decoding via Pillow keeps alpha and one code path for every raster format.
     """
     file = Path(path)
     if not file.is_file():
         return QIcon()
+    if file.suffix.lower() == ".svg":
+        return _icon_from_svg(file, size)
     try:
         from PIL import Image
     except ImportError:
@@ -218,13 +242,16 @@ class Section(QFrame):
 
 
 class SegmentedControl(QFrame):
-    """Exclusive text segments, used as sidebar page tabs."""
+    """Exclusive segments, used as sidebar page tabs or icon toggles."""
 
     currentChanged = Signal(int)
 
     def __init__(
         self,
         labels: Sequence[str],
+        *,
+        icons: Sequence[QIcon | None] | None = None,
+        tooltips: Sequence[str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -236,6 +263,8 @@ class SegmentedControl(QFrame):
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._buttons: list[QPushButton] = []
+        icons = icons or []
+        tooltips = tooltips or []
         for index, label in enumerate(labels):
             button = QPushButton(label)
             button.setCheckable(True)
@@ -244,6 +273,15 @@ class SegmentedControl(QFrame):
             button.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
+            if index < len(tooltips):
+                button.setToolTip(tooltips[index])
+            if index < len(icons) and icons[index] is not None:
+                icon = icons[index]
+                if icon is not None and not icon.isNull():
+                    button.setIcon(icon)
+                    button.setText("")
+                    if not button.toolTip():
+                        button.setToolTip(label)
             self._group.addButton(button, index)
             row.addWidget(button)
             self._buttons.append(button)

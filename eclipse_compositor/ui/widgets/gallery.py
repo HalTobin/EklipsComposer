@@ -20,7 +20,8 @@ from PySide6.QtWidgets import (
 from eclipse_compositor.cv.loading import load_image_bgr
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
 from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode, ImageItem, JobStatus, ScreenState
-from eclipse_compositor.ui.theme import COLOR, ActionButton, CaptionLabel, ComboField, HintLabel, SegmentedControl, ToggleRow
+from eclipse_compositor.resources import icon_path
+from eclipse_compositor.ui.theme import COLOR, ActionButton, CaptionLabel, ComboField, HintLabel, SegmentedControl, ToggleRow, qicon_from_path
 from eclipse_compositor.ui.widgets.frame_preview import FramePreview
 from eclipse_compositor.ui.widgets.viewport import bgr_to_qimage
 
@@ -140,7 +141,19 @@ class GalleryBar(QWidget):
         # ---- Toolbar row 2: view mode / sort / favorites filter ----
         row_tools = QHBoxLayout()
         row_tools.setSpacing(8)
-        self.view_mode = SegmentedControl(["Preview", "List", "Icons"])
+        self.view_mode = SegmentedControl(
+            ["Preview", "List", "Icons"],
+            icons=[
+                self._view_mode_icon("rows.svg"),
+                self._view_mode_icon("list.svg"),
+                self._view_mode_icon("grid.svg"),
+            ],
+            tooltips=[
+                "Preview list with thumbnails",
+                "Compact list",
+                "Icon grid",
+            ],
+        )
         self.view_mode.setToolTip("Frame list appearance")
         self.sort_mode = ComboField(
             "Sort by",
@@ -425,6 +438,14 @@ class GalleryBar(QWidget):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def _view_mode_icon(self, filename: str) -> QIcon | None:
+        """Load an SVG icon from ``assets/icons/``; return None so text is shown as fallback."""
+        path = icon_path(filename)
+        if not path.is_file():
+            return None
+        icon = qicon_from_path(path, size=20)
+        return icon if not icon.isNull() else None
 
     def _on_view_mode_changed(self, index: int) -> None:
         mode = GalleryViewMode.LIST_PREVIEW

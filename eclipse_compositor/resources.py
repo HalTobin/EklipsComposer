@@ -30,6 +30,16 @@ def assets_dir() -> Path:
     return project_root() / "assets"
 
 
+def icons_dir() -> Path:
+    """Return the directory that holds small UI icons (SVG/PNG)."""
+    return assets_dir() / "icons"
+
+
+def icon_path(name: str) -> Path:
+    """Return the path to a UI icon named *name* in ``assets/icons/``."""
+    return icons_dir() / name
+
+
 def _icon_filename() -> str:
     """Return the platform-native icon filename."""
     if sys.platform == "darwin":

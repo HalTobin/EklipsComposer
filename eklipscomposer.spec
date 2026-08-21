@@ -17,7 +17,7 @@ ROOT = Path(SPECPATH)
 
 datas: list = []
 binaries: list = []
-hiddenimports: list[str] = ["piexif"]
+hiddenimports: list[str] = ["piexif", "PySide6.QtSvg"]
 
 _ffmpeg = ROOT / "third_party" / "ffmpeg" / "ffmpeg"
 if sys.platform == "win32":
@@ -55,6 +55,13 @@ if sys.platform == "darwin" and _PADDED.is_file():
     datas.append((str(_PADDED), "assets"))
 elif sys.platform != "darwin" and APP_ICON.is_file():
     datas.append((str(APP_ICON), "assets"))
+
+# Small UI icons (gallery view modes, etc.). SVGs are decoded via Pillow at runtime.
+_ICONS_DIR = ROOT / "assets" / "icons"
+if _ICONS_DIR.is_dir():
+    for _icon_file in _ICONS_DIR.iterdir():
+        if _icon_file.is_file():
+            datas.append((str(_icon_file), "assets/icons"))
 
 # Licenses dialog reads this at runtime; regenerate via `make licenses-report`.
 _LICENSES_REPORT = ROOT / "assets" / "licenses-report.json"
@@ -116,7 +123,6 @@ excludes = [
     "PySide6.QtSerialPort",
     "PySide6.QtSpatialAudio",
     "PySide6.QtSql",
-    "PySide6.QtSvg",
     "PySide6.QtTest",
     "PySide6.QtTextToSpeech",
     "PySide6.QtUiTools",
@@ -158,7 +164,6 @@ _DROP_SUBSTR = (
     "qtserial",
     "qtshadertools",
     "qtsql",
-    "qtsvg",
     "qttest",
     "qttexttospeech",
     "qtuitools",
