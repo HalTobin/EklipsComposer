@@ -107,6 +107,44 @@ class StatusBanner(QLabel):
         self.setVisible(bool(text.strip()))
 
 
+def _recolor_pixmap(pix: QPixmap, color: QColor) -> QPixmap:
+    """Return a new pixmap where every non-transparent pixel becomes *color*."""
+    tinted = QPixmap(pix.size())
+    tinted.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(tinted)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
+    painter.drawPixmap(0, 0, pix)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(tinted.rect(), color)
+    painter.end()
+    return tinted
+
+
+def _tinted_icon_for_button(icon: QIcon) -> QIcon:
+    """Return a two-state icon: white when normal, original color when checked."""
+    on_color = QColor(COLOR.text)
+    sizes = [16, 20, 24, 32]
+    tinted = QIcon()
+    for size in sizes:
+        base = icon.pixmap(size, size)
+        if base.isNull():
+            continue
+        tinted.addPixmap(_recolor_pixmap(base, on_color), QIcon.Mode.Normal, QIcon.State.Off)
+        tinted.addPixmap(base, QIcon.Mode.Normal, QIcon.State.On)
+    return tinted
+    """Return a new pixmap where every non-transparent pixel becomes *color*."""
+    tinted = QPixmap(pix.size())
+    tinted.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(tinted)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+    painter.fillRect(tinted.rect(), color)
+    painter.drawPixmap(0, 0, pix)
+    painter.end()
+    return tinted
+
+
 def _icon_from_svg(file: Path, size: int) -> QIcon:
     """Render an SVG to a QIcon using QtSvg (no platform image plugin needed)."""
     try:
@@ -252,14 +290,19 @@ class SegmentedControl(QFrame):
         *,
         icons: Sequence[QIcon | None] | None = None,
         tooltips: Sequence[str] | None = None,
+        compact: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("segmentedControl")
         self._updating = False
         row = QHBoxLayout(self)
-        row.setContentsMargins(4, 4, 4, 4)
-        row.setSpacing(2)
+        if compact:
+            row.setContentsMargins(2, 2, 2, 2)
+            row.setSpacing(2)
+        else:
+            row.setContentsMargins(4, 4, 4, 4)
+            row.setSpacing(2)
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._buttons: list[QPushButton] = []
@@ -270,14 +313,22 @@ class SegmentedControl(QFrame):
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setProperty("variant", "segment")
-            button.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
+            button.setProperty("compact", compact)
+            if compact:
+                button.setFixedSize(28, 28)
+                button.setSizePolicy(
+                    QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+                )
+            else:
+                button.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
             if index < len(tooltips):
                 button.setToolTip(tooltips[index])
             if index < len(icons) and icons[index] is not None:
                 icon = icons[index]
                 if icon is not None and not icon.isNull():
+                    icon = _tinted_icon_for_button(icon)
                     button.setIcon(icon)
                     button.setText("")
                     if not button.toolTip():

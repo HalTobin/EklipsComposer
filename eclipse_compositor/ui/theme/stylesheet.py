@@ -289,6 +289,13 @@ def build_stylesheet() -> str:
         min-height: 26px;
         font-size: {t.caption}px;
     }}
+    QPushButton[variant="segment"][compact="true"] {{
+        padding: 0px;
+        min-height: 24px;
+        max-height: 28px;
+        min-width: 24px;
+        max-width: 28px;
+    }}
     QPushButton[variant="segment"]:hover {{
         color: {c.text};
         background: {c.bg_hover};
@@ -299,6 +306,12 @@ def build_stylesheet() -> str:
         color: {c.accent_text};
         font-weight: 600;
         border: none;
+    }}
+    QPushButton[variant="segment"]::icon {{
+        image: none;
+    }}
+    QPushButton[variant="segment"][compact="true"]::icon {{
+        image: none;
     }}
     QPushButton[variant="hud"] {{
         background: transparent;

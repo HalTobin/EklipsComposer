@@ -153,6 +153,7 @@ class GalleryBar(QWidget):
                 "Compact list",
                 "Icon grid",
             ],
+            compact=True,
         )
         self.view_mode.setToolTip("Frame list appearance")
         self.sort_mode = ComboField(
