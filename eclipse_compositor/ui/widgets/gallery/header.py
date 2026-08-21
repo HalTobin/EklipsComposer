@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QPushButton,
     QWidget,
 )
 
@@ -49,10 +50,71 @@ class GalleryHeader(QWidget):
 
         self.import_btn = ActionButton("+ Import", variant="primary")
         self.import_btn.setToolTip("Import images or video into the gallery")
+        self.import_btn.setFixedHeight(28)
+        self.import_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: {COLOR.accent};
+                color: {COLOR.accent_text};
+                border: 1px solid transparent;
+                border-radius: 6px;
+                padding: 0 10px;
+                min-height: 28px;
+                max-height: 28px;
+                height: 28px;
+                font-weight: 600;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background: {COLOR.accent_hover};
+            }}
+            QPushButton:pressed {{
+                background: {COLOR.accent_pressed};
+            }}
+            QPushButton:disabled {{
+                background: {COLOR.border_strong};
+                color: {COLOR.text_faint};
+            }}
+            """
+        )
 
-        self.more_btn = ActionButton("⋯", variant="ghost")
+        self.more_btn = QPushButton("⋯")
         self.more_btn.setToolTip("Batch and selection actions")
         self.more_btn.setFixedSize(28, 28)
+        self.more_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.more_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background: {COLOR.bg_sunken};
+                color: {COLOR.text_muted};
+                border: 1px solid {COLOR.border};
+                border-radius: 6px;
+                padding: 0px;
+                margin: 0px;
+                min-width: 28px;
+                max-width: 28px;
+                width: 28px;
+                min-height: 28px;
+                max-height: 28px;
+                height: 28px;
+                font-size: 14px;
+                font-weight: bold;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                background: {COLOR.bg_hover};
+                color: {COLOR.text};
+                border-color: {COLOR.border_strong};
+            }}
+            QPushButton:pressed {{
+                background: {COLOR.bg_sunken};
+            }}
+            QPushButton::menu-indicator {{
+                image: none;
+                width: 0px;
+            }}
+            """
+        )
 
         self._menu = QMenu(self)
         self._select_all_action = self._menu.addAction("Enable All Frames")
@@ -66,14 +128,18 @@ class GalleryHeader(QWidget):
         self._favorite_action.triggered.connect(self.toggle_favorite_clicked.emit)
         self._remove_action.triggered.connect(self.remove_selected_clicked.emit)
 
-        self.more_btn.setMenu(self._menu)
+        self.more_btn.clicked.connect(self._show_more_menu)
         self.import_btn.clicked.connect(self.import_clicked.emit)
 
-        layout.addWidget(title)
-        layout.addWidget(self._count_badge)
+        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self._count_badge, alignment=Qt.AlignmentFlag.AlignVCenter)
         layout.addStretch(1)
-        layout.addWidget(self.import_btn)
-        layout.addWidget(self.more_btn)
+        layout.addWidget(self.import_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(self.more_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+    def _show_more_menu(self) -> None:
+        pos = self.more_btn.mapToGlobal(QPoint(0, self.more_btn.height() + 2))
+        self._menu.exec(pos)
 
     def set_counts(self, enabled: int, total: int, favorites: int) -> None:
         """Update the count badge next to the section title."""
