@@ -28,6 +28,11 @@ class UpdateAdjustCircleThreshold(AdjustCircleAction):
 class AutoDetect(AdjustCircleAction):
     pass
 
+# New action for manual circle adjustments
+@dataclass(frozen=True)
+class ManualAdjustCircle(AdjustCircleAction):
+    center: tuple[int, int]
+    radius: float
 
 @dataclass(frozen=True)
 class ToggleCircleVisibility(AdjustCircleAction):

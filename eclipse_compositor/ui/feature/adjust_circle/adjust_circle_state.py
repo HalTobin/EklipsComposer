@@ -20,6 +20,9 @@ class AdjustCircleState:
     show_circle: bool = True
     image_bgr: np.ndarray | None = None
     detection: DiscDetection | None = None
+    # Manual override fields
+    manual_center: tuple[int, int] | None = None
+    manual_radius: float | None = None
     error_message: str | None = None
     is_loading: bool = False
     is_ready: bool = False

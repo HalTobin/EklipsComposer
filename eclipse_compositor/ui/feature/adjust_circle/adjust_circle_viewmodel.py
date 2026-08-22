@@ -95,10 +95,12 @@ class AdjustCircleViewModel(QObject):
                     )
                 )
 
-            case ToggleCircleVisibility(visible=visible):
+            case ManualAdjustCircle(center=center, radius=radius):
+                # Update manual override fields in state
                 self._state = self._use_cases.update_adjust_circle.invoke(
                     self._state,
-                    show_circle=visible,
+                    manual_center=center,
+                    manual_radius=radius,
                 )
                 self.state_changed.emit(self._state)
 

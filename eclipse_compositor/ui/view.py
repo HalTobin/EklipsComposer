@@ -631,7 +631,7 @@ class ScreenView(QMainWindow):
             self._adjust_circle_vm.state,
             parent=self,
         )
-        dialog.setWindowState(dialog.windowState() | Qt.WindowState.WindowFullScreen)
+        # Removed fullscreen enforcement
         self._adjust_circle_vm.dispatch(
             OpenAdjustCircle(index=index, path=item.path, threshold=state.threshold)
         )
