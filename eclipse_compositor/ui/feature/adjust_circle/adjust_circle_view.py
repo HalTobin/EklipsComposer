@@ -18,15 +18,15 @@ from PySide6.QtWidgets import (
 )
 
 from eclipse_compositor.cv.detection import DiscDetection
-from eclipse_compositor.ui.feature.adjust_circle.actions import (
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_actions import (
     ApplyAdjustment,
     AutoDetect,
     OpenAdjustCircle,
     ToggleCircleVisibility,
     UpdateAdjustCircleThreshold,
 )
-from eclipse_compositor.ui.feature.adjust_circle.state import AdjustCircleState
-from eclipse_compositor.ui.feature.adjust_circle.viewmodel import AdjustCircleViewModel
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_state import AdjustCircleState
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_viewmodel import AdjustCircleViewModel
 from eclipse_compositor.ui.theme import ActionButton, CaptionLabel, FieldLabel, IntSliderField
 from eclipse_compositor.ui.widgets.viewport import bgr_to_qimage
 

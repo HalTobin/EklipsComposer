@@ -5,12 +5,12 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from eclipse_compositor.cv.detection import DiscDetection
-from eclipse_compositor.ui.feature.adjust_circle.actions import (
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_actions import (
     ApplyAdjustment,
     DetectCircleResult,
     UpdateAdjustCircleThreshold,
 )
-from eclipse_compositor.ui.feature.adjust_circle.viewmodel import AdjustCircleViewModel
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_viewmodel import AdjustCircleViewModel
 
 
 def _get_app() -> QApplication:

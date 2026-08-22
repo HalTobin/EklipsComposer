@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QThreadPool, Signal
 
 from eclipse_compositor.cv.detection import DiscDetection
-from eclipse_compositor.ui.feature.adjust_circle.actions import (
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_actions import (
     AdjustCircleAction,
     ApplyAdjustment,
     AutoDetect,
@@ -19,9 +19,9 @@ from eclipse_compositor.ui.feature.adjust_circle.actions import (
     ToggleCircleVisibility,
     UpdateAdjustCircleThreshold,
 )
-from eclipse_compositor.ui.feature.adjust_circle.state import AdjustCircleState
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_state import AdjustCircleState
 from eclipse_compositor.ui.feature.adjust_circle.use_cases import AdjustCircleUseCases
-from eclipse_compositor.ui.feature.adjust_circle.workers import (
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_workers import (
     AdjustCircleDetectWorker,
     AdjustCircleLoadWorker,
     AdjustCircleSignals,

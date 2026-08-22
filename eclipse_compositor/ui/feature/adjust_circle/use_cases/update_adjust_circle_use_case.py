@@ -3,7 +3,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, replace
 
-from eclipse_compositor.ui.feature.adjust_circle.state import AdjustCircleState
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_state import AdjustCircleState
 
 
 @dataclass(frozen=True)

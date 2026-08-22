@@ -78,9 +78,9 @@ from eclipse_compositor.resources import app_icon_path
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
 from eclipse_compositor.ui.licenses import show_licenses_dialog
 from eclipse_compositor.ui.state import JobStatus, ScreenState
-from eclipse_compositor.ui.feature.adjust_circle.view import AdjustCircleView
-from eclipse_compositor.ui.feature.adjust_circle.viewmodel import AdjustCircleViewModel
-from eclipse_compositor.ui.feature.adjust_circle.actions import OpenAdjustCircle
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_view import AdjustCircleView
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_viewmodel import AdjustCircleViewModel
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_actions import OpenAdjustCircle
 from eclipse_compositor.ui.theme import qicon_from_path
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
 from eclipse_compositor.ui.widgets.about_dialog import show_about_dialog

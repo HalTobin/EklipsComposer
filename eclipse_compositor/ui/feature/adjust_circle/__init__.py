@@ -1,7 +1,7 @@
 """Adjust circle feature package."""
 
-from eclipse_compositor.ui.feature.adjust_circle.state import AdjustCircleState
-from eclipse_compositor.ui.feature.adjust_circle.actions import (
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_state import AdjustCircleState
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_actions import (
     AdjustCircleAction,
     ApplyAdjustment,
     AutoDetect,
@@ -11,14 +11,14 @@ from eclipse_compositor.ui.feature.adjust_circle.actions import (
     ToggleCircleVisibility,
     UpdateAdjustCircleThreshold,
 )
-from eclipse_compositor.ui.feature.adjust_circle.use_cases import (
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_use_cases import (
     ApplyAdjustCircleUseCase,
     LoadAdjustCircleUseCase,
     UpdateAdjustCircleUseCase,
     AdjustCircleUseCases,
 )
-from eclipse_compositor.ui.feature.adjust_circle.viewmodel import AdjustCircleViewModel
-from eclipse_compositor.ui.feature.adjust_circle.view import AdjustCircleView
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_viewmodel import AdjustCircleViewModel
+from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_view import AdjustCircleView
 
 __all__ = [
     "AdjustCircleState",
