@@ -70,7 +70,12 @@ class ZipProjectRepository:
                     )
                     zf.write(frame.source_path, arcname=arcname)
                     records.append(
-                        FrameRecord(file=arcname, enabled=frame.enabled, favorite=frame.favorite)
+                        FrameRecord(
+                            file=arcname,
+                            enabled=frame.enabled,
+                            favorite=frame.favorite,
+                            manual_detection=frame.manual_detection,
+                        )
                     )
                 document = ProjectDocument(
                     version=FORMAT_VERSION,

@@ -14,6 +14,7 @@ from eclipse_compositor.project.domain.models import (
     ColorimetrySettings,
     CompositeSettings,
     FrameRecord,
+    ManualDetection,
     MaskSettings,
     ProjectDocument,
 )
@@ -50,7 +51,12 @@ def encode_composition(document: ProjectDocument) -> str:
             "feather": document.mask.feather,
         },
         "frames": [
-            {"file": frame.file, "enabled": frame.enabled, "favorite": frame.favorite}
+            {
+                "file": frame.file,
+                "enabled": frame.enabled,
+                "favorite": frame.favorite,
+                "manual_detection": _encode_manual_detection(frame.manual_detection),
+            }
             for frame in document.frames
         ],
     }
@@ -97,6 +103,40 @@ def decode_composition(raw: str) -> ProjectDocument:
         colorimetry=colorimetry,
         mask=mask,
         frames=frames,
+    )
+
+
+def _encode_manual_detection(detection: ManualDetection | None) -> dict | None:
+    if detection is None:
+        return None
+    return {
+        "center": [detection.center[0], detection.center[1]],
+        "radius": detection.radius,
+        "area": detection.area,
+        "confidence": detection.confidence,
+    }
+
+
+def _parse_manual_detection(value: object | None) -> ManualDetection | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ProjectFormatError("manual_detection must be an object or null.")
+    center = value.get("center")
+    if (
+        not isinstance(center, list)
+        or len(center) != 2
+        or any(not isinstance(c, int) or isinstance(c, bool) for c in center)
+    ):
+        raise ProjectFormatError("manual_detection.center must be a two-element integer array.")
+    radius = _as_float(value.get("radius"), "manual_detection.radius")
+    area = _as_float(value.get("area"), "manual_detection.area")
+    confidence = _as_float(value.get("confidence"), "manual_detection.confidence")
+    return ManualDetection(
+        center=(center[0], center[1]),
+        radius=radius,
+        area=area,
+        confidence=confidence,
     )
 
 
@@ -205,6 +245,7 @@ def _parse_frames(value: Any) -> tuple[FrameRecord, ...]:
                 favorite=_optional_bool(
                     item, "favorite", False, f"frames[{i}].favorite"
                 ),
+                manual_detection=_parse_manual_detection(item.get("manual_detection")),
             )
         )
     return tuple(frames)

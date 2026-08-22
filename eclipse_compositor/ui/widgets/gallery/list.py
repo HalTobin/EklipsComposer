@@ -54,6 +54,7 @@ class FrameListWidget(QListWidget):
     remove_requested = Signal(object)  # tuple[int, ...]
     toggle_favorite_requested = Signal(int, bool)  # original_index, new_state
     show_properties_requested = Signal()
+    adjust_circle_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -210,6 +211,8 @@ class FrameListWidget(QListWidget):
         menu.addSeparator()
         props_action = menu.addAction("Properties")
         props_action.triggered.connect(self.show_properties_requested.emit)
+        adjust_action = menu.addAction("Adjust circle")
+        adjust_action.triggered.connect(lambda: self.adjust_circle_requested.emit(original))
         menu.addSeparator()
         remove_action = menu.addAction("Remove")
         remove_action.triggered.connect(self._on_context_remove)

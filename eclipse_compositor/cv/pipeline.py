@@ -67,6 +67,7 @@ class ComposeParams:
     mask_enabled: bool = False
     mask_size: float = 0.90
     mask_feather: float = 0.20
+    manual_detections: dict[Path, DiscDetection] | None = None
 
 
 def process_frame(
@@ -220,7 +221,11 @@ def compose_sequence(
             skipped.append(path)
             continue
 
-        detection = find_disc_center(bgr, threshold=params.threshold)
+        detection = None
+        if params.manual_detections is not None:
+            detection = params.manual_detections.get(path)
+        if detection is None:
+            detection = find_disc_center(bgr, threshold=params.threshold)
         if detection is None:
             logger.warning(
                 "Skipping %s: disc not found (threshold=%d)", path.name, params.threshold

@@ -14,6 +14,7 @@ from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode
 from eclipse_compositor.cv.video import is_supported_video
 from eclipse_compositor.project.domain.models import ProjectBlueprint
 from eclipse_compositor.ui.actions import (
+    ApplyImageDetectionOverride,
     ClearImages,
     BlockingJobCancelled,
     CancelJob,
@@ -354,6 +355,15 @@ class ScreenViewModel(QObject):
                 if next_state is self._state:
                     return
                 self._emit(next_state)
+
+            case ApplyImageDetectionOverride(index=index, detection=detection):
+                self._emit(
+                    self.use_cases.apply_image_detection_override.invoke(
+                        self._state,
+                        index,
+                        detection,
+                    )
+                )
 
             case SelectSidebarTab(value=value):
                 next_state = self.use_cases.select_sidebar_tab.invoke(self._state, value)

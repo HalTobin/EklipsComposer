@@ -60,12 +60,23 @@ class MaskSettings:
 
 
 @dataclass(frozen=True)
+class ManualDetection:
+    """Persistable disc detection result for a frame."""
+
+    center: tuple[int, int]
+    radius: float
+    area: float
+    confidence: float
+
+
+@dataclass(frozen=True)
 class FrameSource:
     """A gallery frame on disk, ready to pack into an archive."""
 
     source_path: Path
     enabled: bool
     favorite: bool = False
+    manual_detection: ManualDetection | None = None
 
 
 @dataclass(frozen=True)
@@ -75,6 +86,7 @@ class FrameRecord:
     file: str
     enabled: bool
     favorite: bool = False
+    manual_detection: ManualDetection | None = None
 
 
 @dataclass(frozen=True)

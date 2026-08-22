@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from eclipse_compositor.cv.detection import DiscDetection
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 
 
@@ -76,6 +77,7 @@ class ImageItem:
     path: Path
     enabled: bool = True
     detection_ok: bool | None = None  # None = not yet evaluated
+    manual_detection: DiscDetection | None = None
     thumbnail_path: str | None = None  # small JPEG for the gallery list icon
     favorite: bool = False
 

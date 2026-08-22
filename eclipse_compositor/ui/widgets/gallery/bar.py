@@ -27,6 +27,7 @@ class GalleryBar(QWidget):
     toggle_image = Signal(int, bool)
     toggle_favorite = Signal(int, bool)
     select_image = Signal(object)  # int | None
+    adjust_circle_requested = Signal(int)
     remove_clicked = Signal(object)  # tuple[int, ...] | int | None
     reorder_images = Signal(object)  # tuple[ImageItem, ...]
     files_dropped = Signal(object)  # tuple[Path, ...]
@@ -106,6 +107,7 @@ class GalleryBar(QWidget):
         self.list.remove_requested.connect(self.remove_clicked.emit)
         self.list.toggle_favorite_requested.connect(self.toggle_favorite.emit)
         self.list.show_properties_requested.connect(self.frame_preview.show_properties)
+        self.list.adjust_circle_requested.connect(self.adjust_circle_requested.emit)
         self.list.selection_state_changed.connect(self._on_selection_state_changed)
 
     def _on_selection_state_changed(self, has_selection: bool, has_current: bool) -> None:

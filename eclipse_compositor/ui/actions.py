@@ -92,6 +92,14 @@ class UpdateGalleryShowOnlyFavorites(ScreenAction):
 
 
 @dataclass(frozen=True)
+class ApplyImageDetectionOverride(ScreenAction):
+    """Apply a manual detection result to a gallery frame."""
+
+    index: int
+    detection: object  # DiscDetection | None
+
+
+@dataclass(frozen=True)
 class UpdateCropSize(ScreenAction):
     value: int
 

@@ -41,6 +41,7 @@ from eclipse_compositor.ui.use_cases.update_gallery_view_mode_use_case import Up
 from eclipse_compositor.ui.use_cases.update_colorimetry_use_case import UpdateColorimetryUseCase
 from eclipse_compositor.ui.use_cases.update_layout_use_case import UpdateLayoutUseCase
 from eclipse_compositor.ui.use_cases.update_mask_use_case import UpdateMaskUseCase
+from eclipse_compositor.ui.use_cases.apply_image_detection_override_use_case import ApplyImageDetectionOverrideUseCase
 from eclipse_compositor.ui.use_cases.update_zoom_use_case import UpdateZoomUseCase
 
 
@@ -86,3 +87,4 @@ class UseCases:
     update_mask: UpdateMaskUseCase = UpdateMaskUseCase()
     update_canvas: UpdateCanvasUseCase = UpdateCanvasUseCase()
     update_zoom: UpdateZoomUseCase = UpdateZoomUseCase()
+    apply_image_detection_override: ApplyImageDetectionOverrideUseCase = ApplyImageDetectionOverrideUseCase()

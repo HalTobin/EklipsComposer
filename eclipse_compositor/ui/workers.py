@@ -14,10 +14,11 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
+from eclipse_compositor.cv.detection import DiscDetection
 from eclipse_compositor.cv.loading import load_image_bgr, make_proxy, write_thumbnail
 from eclipse_compositor.cv.pipeline import ComposeParams, compose_sequence, export_composite
 from eclipse_compositor.cv.video import is_supported_video, iter_extracted_frames
-from eclipse_compositor.project import ProjectBlueprint, ProjectDocument, default_project_service
+from eclipse_compositor.project import ProjectBlueprint, ProjectDocument, ManualDetection, default_project_service
 from eclipse_compositor.ui.state import ImageItem, ScreenState
 
 logger = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ def cache_imported_frame(
     *,
     enabled: bool = True,
     favorite: bool = False,
+    manual_detection: object | None = None,
     max_edge: int = 1080,
 ) -> ImageItem:
     """Store proxy + native shape for one still and return its gallery item."""
@@ -64,7 +66,20 @@ def cache_imported_frame(
             thumb_path = str(dest)
         except OSError as exc:
             logger.warning("Thumbnail failed for %s: %s", path, exc)
-    return ImageItem(path=path, enabled=enabled, favorite=favorite, thumbnail_path=thumb_path)
+    if isinstance(manual_detection, ManualDetection):
+        manual_detection = DiscDetection(
+            center=manual_detection.center,
+            radius=manual_detection.radius,
+            area=manual_detection.area,
+            confidence=manual_detection.confidence,
+        )
+    return ImageItem(
+        path=path,
+        enabled=enabled,
+        favorite=favorite,
+        manual_detection=manual_detection,
+        thumbnail_path=thumb_path,
+    )
 
 
 def _thumb_dest(thumb_dir: Path, path: Path) -> Path:
@@ -405,6 +420,7 @@ class ProjectOpenWorker(QRunnable):
                         thumb_dir,
                         enabled=record.enabled,
                         favorite=record.favorite,
+                        manual_detection=record.manual_detection,
                         max_edge=self.max_edge,
                     )
                 )
@@ -462,4 +478,9 @@ def params_from_state(state: ScreenState) -> ComposeParams:
         mask_enabled=state.mask_enabled,
         mask_size=state.mask_size,
         mask_feather=state.mask_feather,
+        manual_detections={
+            item.path: item.manual_detection
+            for item in state.images
+            if item.manual_detection is not None
+        },
     )

@@ -5,11 +5,13 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
+from eclipse_compositor.cv.detection import DiscDetection
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
 from eclipse_compositor.project.domain.models import (
     ColorimetrySettings,
     CompositeSettings,
     FrameSource,
+    ManualDetection,
     MaskSettings,
     ProjectBlueprint,
     ProjectDocument,
@@ -46,7 +48,12 @@ def blueprint_from_state(state: ScreenState) -> ProjectBlueprint:
             feather=state.mask_feather,
         ),
         frames=tuple(
-            FrameSource(source_path=item.path, enabled=item.enabled, favorite=item.favorite)
+            FrameSource(
+                source_path=item.path,
+                enabled=item.enabled,
+                favorite=item.favorite,
+                manual_detection=_serialize_manual_detection(item.manual_detection),
+            )
             for item in state.images
         ),
     )
@@ -101,4 +108,15 @@ def state_from_document(
         margin_y=composite.margin_y,
         _proxy_generation=proxy_generation,
         _preview_generation=preview_generation,
+    )
+
+
+def _serialize_manual_detection(detection: DiscDetection | None) -> ManualDetection | None:
+    if detection is None:
+        return None
+    return ManualDetection(
+        center=detection.center,
+        radius=detection.radius,
+        area=detection.area,
+        confidence=detection.confidence,
     )

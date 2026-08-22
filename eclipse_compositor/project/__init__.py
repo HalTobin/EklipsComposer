@@ -14,6 +14,7 @@ from eclipse_compositor.project.domain.models import (
     FrameSource,
     LoadedProject,
     MaskSettings,
+    ManualDetection,
     ProjectBlueprint,
     ProjectDocument,
     is_project_file,

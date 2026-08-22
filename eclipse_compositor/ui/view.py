@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from eclipse_compositor.ui.actions import (
+    ApplyImageDetectionOverride,
     CancelJob,
     ClearImages,
     ExportComposite,
@@ -32,6 +33,7 @@ from eclipse_compositor.ui.actions import (
     OpenProject,
     RemoveImage,
     ReorderImages,
+    RequestPreview,
     ResetColorimetry,
     SaveProject,
     SelectImage,
@@ -76,6 +78,9 @@ from eclipse_compositor.resources import app_icon_path
 from eclipse_compositor.ui.drop_import import mime_has_importable_paths, paths_from_mime
 from eclipse_compositor.ui.licenses import show_licenses_dialog
 from eclipse_compositor.ui.state import JobStatus, ScreenState
+from eclipse_compositor.ui.feature.adjust_circle.view import AdjustCircleView
+from eclipse_compositor.ui.feature.adjust_circle.viewmodel import AdjustCircleViewModel
+from eclipse_compositor.ui.feature.adjust_circle.actions import OpenAdjustCircle
 from eclipse_compositor.ui.theme import qicon_from_path
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
 from eclipse_compositor.ui.widgets.about_dialog import show_about_dialog
@@ -202,6 +207,7 @@ class ScreenView(QMainWindow):
         self.gallery.toggle_favorite.connect(
             lambda i, f: self.view_model.dispatch(ToggleFavorite(i, f))
         )
+        self.gallery.adjust_circle_requested.connect(self._on_adjust_circle_requested)
         self.gallery.remove_clicked.connect(
             lambda indices: self.view_model.dispatch(
                 RemoveImage(tuple(indices) if isinstance(indices, tuple) else (indices,))
@@ -240,6 +246,10 @@ class ScreenView(QMainWindow):
 
         self.view_model.state_changed.connect(self.render)
         self._last_preview_ref: object | None = None
+        self._adjust_circle_vm = AdjustCircleViewModel(self)
+        self._adjust_circle_vm.manual_detection_applied.connect(
+            self._on_manual_detection_applied
+        )
         self.render(self.view_model.state)
 
     def render(self, state: ScreenState) -> None:
@@ -412,6 +422,21 @@ class ScreenView(QMainWindow):
             return
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
+
+    def _on_adjust_circle_requested(self, index: int) -> None:
+        state = self.view_model.state
+        if not (0 <= index < len(state.images)):
+            return
+        item = state.images[index]
+        dialog = AdjustCircleView(
+            self._adjust_circle_vm,
+            self._adjust_circle_vm.state,
+            parent=self,
+        )
+        self._adjust_circle_vm.dispatch(
+            OpenAdjustCircle(index=index, path=item.path, threshold=state.threshold)
+        )
+        dialog.exec()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         self._accept_import_drag(event)
@@ -595,6 +620,26 @@ class ScreenView(QMainWindow):
             self._fullscreen = FullscreenPreview(self)
         self._fullscreen.set_preview(preview, fit=False)  # type: ignore[arg-type]
         self._fullscreen.present()
+
+    def _on_adjust_circle_requested(self, index: int) -> None:
+        state = self.view_model.state
+        if not (0 <= index < len(state.images)):
+            return
+        item = state.images[index]
+        dialog = AdjustCircleView(
+            self._adjust_circle_vm,
+            self._adjust_circle_vm.state,
+            parent=self,
+        )
+        dialog.setWindowState(dialog.windowState() | Qt.WindowState.WindowFullScreen)
+        self._adjust_circle_vm.dispatch(
+            OpenAdjustCircle(index=index, path=item.path, threshold=state.threshold)
+        )
+        dialog.exec()
+
+    def _on_manual_detection_applied(self, index: int, detection: object) -> None:
+        self.view_model.dispatch(ApplyImageDetectionOverride(index=index, detection=detection))
+        self.view_model.dispatch(RequestPreview())
 
     def _on_new(self) -> None:
         if self._import_busy():
