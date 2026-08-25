@@ -85,7 +85,7 @@ class GalleryBar(QWidget):
 
         canvas_widget = QWidget()
         canvas_layout = QVBoxLayout(canvas_widget)
-        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setContentsMargins(0, 12, 0, 0)
         canvas_layout.setSpacing(6)
         canvas_title = QLabel("CANVAS MEDIA")
         canvas_title.setStyleSheet(f"color: {COLOR.text_muted}; font-size: 11px; font-weight: 600;")
@@ -96,6 +96,8 @@ class GalleryBar(QWidget):
         media_split = QSplitter(Qt.Orientation.Vertical)
         media_split.addWidget(project_widget)
         media_split.addWidget(canvas_widget)
+        media_split.setHandleWidth(0)
+        media_split.setStyleSheet("QSplitter::handle { background: transparent; }")
         media_split.setStretchFactor(0, 1)
         media_split.setStretchFactor(1, 1)
         media_split.setSizes([400, 300])
