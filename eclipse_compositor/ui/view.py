@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import sys
+from ctypes import c_bool, c_char_p, c_double, c_uint, c_void_p, cdll, util
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import (
     QAction,
+    QColor,
     QCloseEvent,
     QDragEnterEvent,
     QDragMoveEvent,
@@ -89,6 +93,14 @@ from eclipse_compositor.ui.widgets.sidebar import Sidebar
 from eclipse_compositor.ui.widgets.fullscreen_preview import FullscreenPreview
 from eclipse_compositor.ui.widgets.job_overlay import JobOverlay
 from eclipse_compositor.ui.widgets.viewport import ViewportPane
+
+if sys.platform == "darwin":
+    try:
+        from PySide6.QtGui import QWindow
+    except ImportError:
+        QWindow = None
+else:
+    QWindow = None
 from eclipse_compositor.ui.widgets.video_import_dialog import confirm_video_import
 
 
@@ -102,6 +114,7 @@ class ScreenView(QMainWindow):
         icon = qicon_from_path(app_icon_path())
         if not icon.isNull():
             self.setWindowIcon(icon)
+        self._macos_titlebar_style_applied = False
         self.resize(1440, 880)
         self.sidebar = Sidebar()
         self.viewport = ViewportPane()
@@ -129,8 +142,63 @@ class ScreenView(QMainWindow):
         self._pending_open_path: Path | None = None
         self.job_overlay = JobOverlay(root)
         self._build_menus()
+        self._wire_intents()
 
-        # Intents → dispatch
+    def _apply_macos_titlebar_style(self) -> None:
+        if sys.platform != "darwin":
+            return
+        if QApplication.platformName() != "cocoa":
+            return
+
+        if hasattr(self, "setUnifiedTitleAndToolBarOnMac"):
+            try:
+                self.setUnifiedTitleAndToolBarOnMac(True)
+            except Exception:
+                pass
+
+        try:
+            self.winId()
+            lib_path = util.find_library("objc")
+            if lib_path is None:
+                return
+            objc = cdll.LoadLibrary(lib_path)
+            objc.objc_getClass.restype = c_void_p
+            objc.objc_getClass.argtypes = [c_char_p]
+            objc.sel_registerName.restype = c_void_p
+            objc.sel_registerName.argtypes = [c_char_p]
+
+            def _msg(restype, receiver, selector, *args, argtypes=()):
+                objc.objc_msgSend.restype = restype
+                objc.objc_msgSend.argtypes = [c_void_p, c_void_p, *argtypes]
+                return objc.objc_msgSend(receiver, selector, *args)
+
+            ns_view = c_void_p(int(self.winId()))
+            if not ns_view.value:
+                return
+            ns_window = _msg(c_void_p, ns_view, objc.sel_registerName(b"window"))
+            if not ns_window:
+                return
+            ns_color_class = objc.objc_getClass(b"NSColor")
+            color = self.palette().color(self.backgroundRole())
+            ns_color = _msg(
+                c_void_p,
+                ns_color_class,
+                objc.sel_registerName(b"colorWithDeviceRed:green:blue:alpha:"),
+                c_double(color.redF()),
+                c_double(color.greenF()),
+                c_double(color.blueF()),
+                c_double(color.alphaF()),
+                argtypes=(c_double, c_double, c_double, c_double),
+            )
+            _msg(None, ns_window, objc.sel_registerName(b"setBackgroundColor:"), ns_color, argtypes=(c_void_p,))
+            _msg(None, ns_window, objc.sel_registerName(b"setTitlebarAppearsTransparent:"), True, argtypes=(c_bool,))
+        except Exception as exc:
+            logging.getLogger(__name__).debug(
+                "Could not apply macOS titlebar background style",
+                exc_info=exc,
+            )
+
+    def _wire_intents(self) -> None:
         self.gallery.import_clicked.connect(self._on_import)
         self.viewport.import_clicked.connect(self._on_import)
         self.sidebar.fullscreen_clicked.connect(self._on_fullscreen_preview)
@@ -291,8 +359,14 @@ class ScreenView(QMainWindow):
         self._fullscreen_action.setEnabled(state.preview_bgr is not None)
         self.viewport.set_import_enabled(not busy)
         self.job_overlay.render(state)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._macos_titlebar_style_applied:
+            self._apply_macos_titlebar_style()
+            self._macos_titlebar_style_applied = True
         self._layout_job_overlay()
-        self._complete_pending_after_save(state)
+        self._complete_pending_after_save(self.view_model.state)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         super().resizeEvent(event)
