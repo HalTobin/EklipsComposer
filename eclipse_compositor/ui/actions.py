@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eclipse_compositor.cv.layout import LayoutDirection, LayoutType
-from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode, ImageItem
+from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode, ImageItem, CanvasItem, MediaItem, ProjectSortMode
 
 
 class ScreenAction:
@@ -89,6 +89,43 @@ class UpdateGalleryShowOnlyFavorites(ScreenAction):
     """Filter the gallery to favorites and currently selected frame(s)."""
 
     value: bool
+
+
+@dataclass(frozen=True)
+class ToggleFavoriteAction(ScreenAction):
+    """Toggle favorite state for a project media item by filepath."""
+
+    filepath: str
+    favorite: bool
+
+
+@dataclass(frozen=True)
+class SortProjectMediaAction(ScreenAction):
+    """Change the project media sorting mode."""
+
+    sort_mode: str
+
+
+@dataclass(frozen=True)
+class AddMediaToCanvasAction(ScreenAction):
+    """Add a project media item to the active canvas."""
+
+    filepath: str
+
+
+@dataclass(frozen=True)
+class RemoveMediaFromCanvasAction(ScreenAction):
+    """Remove one active canvas item by ID."""
+
+    canvas_item_id: str
+
+
+@dataclass(frozen=True)
+class ReorderCanvasMediaAction(ScreenAction):
+    """Reorder the canvas media list."""
+
+    from_index: int
+    to_index: int
 
 
 @dataclass(frozen=True)

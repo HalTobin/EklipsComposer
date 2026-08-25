@@ -14,6 +14,7 @@ from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode
 from eclipse_compositor.cv.video import is_supported_video
 from eclipse_compositor.project.domain.models import ProjectBlueprint
 from eclipse_compositor.ui.actions import (
+    AddMediaToCanvasAction,
     ApplyImageDetectionOverride,
     ClearImages,
     BlockingJobCancelled,
@@ -34,6 +35,7 @@ from eclipse_compositor.ui.actions import (
     PreviewFinished,
     PreviewProgress,
     RemoveImage,
+    ReorderCanvasMediaAction,
     ReorderImages,
     RequestPreview,
     ResetColorimetry,
@@ -45,7 +47,9 @@ from eclipse_compositor.ui.actions import (
     SelectImage,
     SelectSidebarTab,
     SetAllEnabled,
+    SortProjectMediaAction,
     ToggleFavorite,
+    ToggleFavoriteAction,
     ToggleImage,
     UpdateArcAngle,
     UpdateBrightness,
@@ -77,6 +81,7 @@ from eclipse_compositor.ui.state import (
     DEFAULT_MAX_RESOLUTION,
     BlockingJob,
     JobStatus,
+    ProjectSortMode,
     ScreenState,
     default_state,
     enabled_paths,
@@ -265,6 +270,56 @@ class ScreenViewModel(QObject):
                 )
                 if next_state is not self._state:
                     self._emit(next_state)
+
+            case ToggleFavoriteAction(filepath=filepath, favorite=favorite):
+                next_project_media = self.use_cases.toggle_project_favorite.invoke(
+                    self._state.project_media,
+                    filepath,
+                    favorite,
+                )
+                if next_project_media is self._state.project_media:
+                    return
+                self._emit(replace(self._state, project_media=next_project_media))
+
+            case SortProjectMediaAction(sort_mode=sort_mode):
+                next_project_media = self.use_cases.sort_project_media.invoke(
+                    self._state.project_media,
+                    sort_mode,
+                )
+                if next_project_media is self._state.project_media:
+                    return
+                next_mode = (
+                    ProjectSortMode(sort_mode)
+                    if not isinstance(sort_mode, ProjectSortMode)
+                    else sort_mode
+                )
+                self._emit(
+                    replace(
+                        self._state,
+                        project_media=next_project_media,
+                        project_sort_mode=next_mode,
+                    )
+                )
+
+            case AddMediaToCanvasAction(filepath=filepath):
+                next_canvas_media = self.use_cases.add_media_to_canvas.invoke(
+                    self._state.project_media,
+                    self._state.canvas_media,
+                    filepath,
+                )
+                if next_canvas_media is self._state.canvas_media:
+                    return
+                self._emit(replace(self._state, canvas_media=next_canvas_media))
+
+            case ReorderCanvasMediaAction(from_index=from_index, to_index=to_index):
+                next_canvas_media = self.use_cases.reorder_canvas_media.invoke(
+                    self._state.canvas_media,
+                    from_index,
+                    to_index,
+                )
+                if next_canvas_media is self._state.canvas_media:
+                    return
+                self._emit(replace(self._state, canvas_media=next_canvas_media))
 
             case SetAllEnabled(enabled=enabled):
                 next_state = self.use_cases.set_all_enabled.invoke(self._state, enabled)

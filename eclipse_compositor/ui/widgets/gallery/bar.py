@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, Signal
+from PySide6.QtGui import QMouseEvent, QPainter
 from PySide6.QtWidgets import (
+    QLabel,
+    QListView,
     QSplitter,
     QStackedLayout,
+    QStyledItemDelegate,
+    QStyle,
+    QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
 )
 
-from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode, ImageItem, JobStatus, ScreenState
+from eclipse_compositor.ui.state import CanvasItem, GallerySortMode, GalleryViewMode, ImageItem, JobStatus, ScreenState
 from eclipse_compositor.ui.theme import COLOR, EmptyState, HintLabel
 from eclipse_compositor.ui.widgets.gallery.header import GalleryHeader
 from eclipse_compositor.ui.widgets.gallery.index_map import DisplayIndexMap
@@ -21,8 +27,55 @@ from eclipse_compositor.ui.widgets.gallery.preview import FramePreview
 from eclipse_compositor.ui.widgets.gallery.toolbar import GalleryToolbar
 
 
+class CanvasMediaModel(QAbstractListModel):
+    """Simple list model for the canvas item order."""
+
+    def __init__(self, items: tuple[CanvasItem, ...] = ()) -> None:
+        super().__init__()
+        self._items = items
+
+    def rowCount(self, parent: QModelIndex | None = None) -> int:
+        return len(self._items)
+
+    def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        item = self._items[index.row()]
+        if role == Qt.ItemDataRole.DisplayRole:
+            return item.title
+        if role == Qt.ItemDataRole.UserRole:
+            return item
+        return None
+
+    def set_items(self, items: tuple[CanvasItem, ...]) -> None:
+        self.beginResetModel()
+        self._items = items
+        self.endResetModel()
+
+
+class CanvasMediaDelegate(QStyledItemDelegate):
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex) -> None:
+        item = index.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(item, CanvasItem):
+            super().paint(painter, option, index)
+            return
+
+        painter.save()
+        rect = option.rect
+        if option.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(rect, option.palette.highlight())
+        else:
+            painter.fillRect(rect, option.palette.alternateBase())
+        handle = rect.adjusted(6, 6, 20, -6)
+        painter.setBrush(Qt.GlobalColor.lightGray)
+        painter.drawRect(handle)
+        painter.setPen(option.palette.text().color())
+        painter.drawText(rect.adjusted(30, 0, -8, 0), Qt.AlignmentFlag.AlignVCenter, item.title)
+        painter.restore()
+
+
 class GalleryBar(QWidget):
-    """Side panel: draggable frame list with per-frame enable toggles, sorting, and metadata."""
+    """Right-hand sidebar with project media explorer and canvas media list."""
 
     toggle_image = Signal(int, bool)
     toggle_favorite = Signal(int, bool)
@@ -37,7 +90,6 @@ class GalleryBar(QWidget):
     show_only_favorites_changed = Signal(bool)
     select_all_clicked = Signal()
     unselect_all_clicked = Signal()
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("gallery")
@@ -48,20 +100,11 @@ class GalleryBar(QWidget):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(8)
 
-        # 1. Header (Frames title + Count badge + Import + More Menu)
         self.header = GalleryHeader()
-        layout.addWidget(self.header)
-
-        # 2. Toolbar (View modes + Sort by + Favorites filter)
         self.toolbar = GalleryToolbar()
-        layout.addWidget(self.toolbar)
-
-        # 3. Hint bar
-        self._hint = HintLabel("Drag frames to reorder composition")
+        self._hint = HintLabel("Project media and canvas order")
         self._hint.setStyleSheet(f"color: {COLOR.text_faint}; font-size: 11px;")
-        layout.addWidget(self._hint)
 
-        # 4. Stacked central area: List vs Empty State
         self.list_container = QWidget()
         self._stack = QStackedLayout(self.list_container)
         self._stack.setContentsMargins(0, 0, 0, 0)
@@ -71,22 +114,52 @@ class GalleryBar(QWidget):
             "No frames yet",
             "Drag photos or videos here, or click Import above",
         )
-
         self._stack.addWidget(self.list)
         self._stack.addWidget(self.empty_state)
 
         self.frame_preview = FramePreview()
 
+        self.canvas_model = CanvasMediaModel()
+
+        self.canvas_list = QListView()
+        self.canvas_list.setModel(self.canvas_model)
+        self.canvas_list.setAlternatingRowColors(True)
+        self.canvas_list.setDragDropMode(QListView.DragDropMode.NoDragDrop)
+        self.canvas_list.setItemDelegate(CanvasMediaDelegate(self))
+
+        project_widget = QWidget()
+        project_layout = QVBoxLayout(project_widget)
+        project_layout.setContentsMargins(0, 0, 0, 0)
+        project_layout.setSpacing(8)
+        project_layout.addWidget(self.header)
+        project_layout.addWidget(self.toolbar)
+        project_layout.addWidget(self._hint)
+        project_split = QSplitter(Qt.Orientation.Vertical)
+        project_split.addWidget(self.list_container)
+        project_split.addWidget(self.frame_preview)
+        project_split.setStretchFactor(0, 3)
+        project_split.setStretchFactor(1, 1)
+        project_split.setSizes([360, 120])
+        project_layout.addWidget(project_split)
+
+        canvas_widget = QWidget()
+        canvas_layout = QVBoxLayout(canvas_widget)
+        canvas_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_layout.setSpacing(6)
+        canvas_title = QLabel("CANVAS MEDIA")
+        canvas_title.setStyleSheet(f"color: {COLOR.text_muted}; font-size: 11px; font-weight: 600;")
+        canvas_layout.addWidget(canvas_title)
+        canvas_layout.addWidget(self.canvas_list)
+
         split = QSplitter(Qt.Orientation.Vertical)
-        split.addWidget(self.list_container)
-        split.addWidget(self.frame_preview)
-        split.setStretchFactor(0, 3)
+        split.addWidget(project_widget)
+        split.addWidget(canvas_widget)
+        split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 1)
-        split.setSizes([520, 140])
+        split.setSizes([520, 220])
         layout.addWidget(split)
         self.setMinimumWidth(220)
 
-        # Connect sub-widget signals
         self.header.import_clicked.connect(self.import_clicked.emit)
         self.header.select_all_clicked.connect(self.select_all_clicked.emit)
         self.header.unselect_all_clicked.connect(self.unselect_all_clicked.emit)
@@ -146,12 +219,10 @@ class GalleryBar(QWidget):
         )
         self._index_map = index_map
 
-        # Sync Header counts
         enabled_count = sum(1 for it in state.images if it.enabled)
         fav_count = sum(1 for it in state.images if it.favorite)
         self.header.set_counts(enabled_count, len(state.images), fav_count)
 
-        # Sync Busy / Import enabled
         busy = (
             state.import_status == JobStatus.RUNNING
             or state.export_status == JobStatus.RUNNING
@@ -160,26 +231,22 @@ class GalleryBar(QWidget):
         self.header.set_import_enabled(not busy)
         self.empty_state.set_import_enabled(not busy)
 
-        # Sync Toolbar controls
         self.toolbar.sync(
             state.gallery_view_mode,
             state.gallery_sort_mode,
             state.gallery_show_only_favorites,
         )
 
-        # Empty state vs list view
         if not state.images:
             self._stack.setCurrentWidget(self.empty_state)
             self._hint.setText("Import photos or video to assemble your eclipse")
         else:
             self._stack.setCurrentWidget(self.list)
             drag_enabled = index_map.can_reorder
-            if drag_enabled:
-                self._hint.setText("Drag frames to reorder composition")
-            else:
-                self._hint.setText("Disable favorites filter to reorder")
+            self._hint.setText(
+                "Drag frames to reorder composition" if drag_enabled else "Disable favorites filter to reorder"
+            )
 
-        # Sync List items and Preview
         self.list.populate(
             state.images,
             index_map,
@@ -187,3 +254,17 @@ class GalleryBar(QWidget):
             state.selected_index,
         )
         self.frame_preview.render(state)
+
+        self.canvas_model.set_items(
+            tuple(
+                CanvasItem(
+                    id=str(index),
+                    path=item.path,
+                    title=item.path.name,
+                    favorite=item.favorite,
+                    thumbnail_path=item.thumbnail_path,
+                )
+                for index, item in enumerate(state.images)
+                if item.enabled
+            )
+        )

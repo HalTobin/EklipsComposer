@@ -15,6 +15,7 @@ from eclipse_compositor.ui.feature.adjust_circle.adjust_circle_actions import (
     AutoDetect,
     DetectCircleResult,
     LoadAdjustCircleImageResult,
+    ManualAdjustCircle,
     OpenAdjustCircle,
     ToggleCircleVisibility,
     UpdateAdjustCircleThreshold,

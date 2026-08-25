@@ -24,10 +24,14 @@ from eclipse_compositor.ui.actions import (
 )
 from eclipse_compositor.ui.state import (
     BlockingJob,
+    CanvasItem,
     ImageItem,
     JobStatus,
+    MediaItem,
+    ProjectSortMode,
     SidebarTab,
 )
+from eclipse_compositor.ui.view import ScreenView
 from eclipse_compositor.ui.viewmodel import ScreenViewModel
 
 

@@ -24,6 +24,13 @@ class GallerySortMode(str, Enum):
     TITLE = "title"
     DATE_TAKEN = "date_taken"
 
+class ProjectSortMode(str, Enum):
+    """Ordering applied to the project media list."""
+
+    NAME = "name"
+    DATE = "date"
+    FAVORITES_FIRST = "favorites_first"
+
 # Floor for the resolution slider when no images are loaded yet.
 DEFAULT_MAX_RESOLUTION: int = 2400
 MIN_RESOLUTION: int = 200
@@ -83,6 +90,28 @@ class ImageItem:
 
 
 @dataclass(frozen=True)
+class MediaItem:
+    """One available media entry in the project library."""
+
+    path: Path
+    title: str
+    favorite: bool = False
+    thumbnail_path: str | None = None
+    date_taken: str | None = None
+
+
+@dataclass(frozen=True)
+class CanvasItem:
+    """One media entry that has been added to the canvas."""
+
+    id: str
+    path: Path
+    title: str
+    favorite: bool = False
+    thumbnail_path: str | None = None
+
+
+@dataclass(frozen=True)
 class ScreenState:
     """Complete snapshot of the main screen UI.
 
@@ -122,6 +151,9 @@ class ScreenState:
     gallery_view_mode: GalleryViewMode = GalleryViewMode.LIST_PREVIEW
     gallery_sort_mode: GallerySortMode = GallerySortMode.TITLE
     gallery_show_only_favorites: bool = False
+    project_media: tuple[MediaItem, ...] = ()
+    canvas_media: tuple[CanvasItem, ...] = ()
+    project_sort_mode: ProjectSortMode = ProjectSortMode.NAME
     contrast: float = DEFAULT_CONTRAST
     saturation: float = DEFAULT_SATURATION
     brightness: float = DEFAULT_BRIGHTNESS

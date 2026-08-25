@@ -16,7 +16,15 @@ from eclipse_compositor.project.domain.models import (
     ProjectBlueprint,
     ProjectDocument,
 )
-from eclipse_compositor.ui.state import MIN_RESOLUTION, ImageItem, JobStatus, default_state
+from eclipse_compositor.ui.state import (
+    MIN_RESOLUTION,
+    CanvasItem,
+    ImageItem,
+    JobStatus,
+    MediaItem,
+    ProjectSortMode,
+    default_state,
+)
 
 
 def blueprint_from_state(state: ScreenState) -> ProjectBlueprint:
@@ -74,9 +82,24 @@ def state_from_document(
     mask = document.mask
     crop = max(MIN_RESOLUTION, min(composite.crop_size, native_max))
     selected = 0 if images else None
+
+    project_media = tuple(
+        MediaItem(
+            path=item.path,
+            title=item.path.name,
+            favorite=item.favorite,
+            thumbnail_path=None,
+            date_taken=None,
+        )
+        for item in images
+    )
+
     return replace(
         default_state(),
         images=images,
+        project_media=project_media,
+        canvas_media=(),
+        project_sort_mode=ProjectSortMode.NAME,
         crop_size=crop,
         spacing=composite.spacing,
         layout=LayoutType(composite.layout),

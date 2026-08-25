@@ -73,3 +73,19 @@ def test_gallery_bar_favorites_filter_render() -> None:
     # 2 favorites + 1 selected non-favorite = 3 visible items
     assert gallery.list.count() == 3
     assert gallery.toolbar.favorites_btn.isChecked() is True
+
+
+def test_canvas_media_reflects_enabled_composition_frames() -> None:
+    _get_app()
+    gallery = GalleryBar()
+    images = (
+        ImageItem(path=Path("first.jpg"), enabled=True, detection_ok=True),
+        ImageItem(path=Path("hidden.jpg"), enabled=False, detection_ok=True),
+        ImageItem(path=Path("third.jpg"), enabled=True, detection_ok=True),
+    )
+
+    gallery.render(ScreenState(images=images))
+
+    assert gallery.canvas_model.rowCount() == 2
+    assert gallery.canvas_model.data(gallery.canvas_model.index(0)) == "first.jpg"
+    assert gallery.canvas_model.data(gallery.canvas_model.index(1)) == "third.jpg"
