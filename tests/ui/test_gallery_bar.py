@@ -29,14 +29,16 @@ def test_project_gallery_can_be_hidden_and_shown() -> None:
 
     gallery.render(ScreenState(project_gallery_hidden=True))
 
-    assert gallery.project_widget.isHidden()
-    assert not gallery.project_media_header.isHidden()
-    gallery.project_gallery_toggle.click()
+    assert not gallery.project_widget.isHidden()
+    assert gallery.toolbar.isHidden()
+    assert gallery.list_container.isHidden()
+    gallery.header.collapse_btn.click()
     assert visibility_changes == [False]
 
     gallery.render(ScreenState(project_gallery_hidden=False))
     assert not gallery.project_widget.isHidden()
-    assert gallery.project_media_header.isHidden()
+    assert not gallery.toolbar.isHidden()
+    assert not gallery.list_container.isHidden()
     assert gallery.header.collapse_btn.size().width() == 20
     assert gallery.header.collapse_btn.size().height() == 20
     gallery.header.collapse_btn.click()

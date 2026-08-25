@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode, ImageItem, JobStatus, ScreenState
 from eclipse_compositor.ui.theme import COLOR, EmptyState, HintLabel
-from eclipse_compositor.ui.widgets.gallery.header import GalleryHeader, GalleryVisibilityButton
+from eclipse_compositor.ui.widgets.gallery.header import GalleryHeader
 from eclipse_compositor.ui.widgets.gallery.index_map import DisplayIndexMap
 from eclipse_compositor.ui.widgets.gallery.list import FrameListWidget
 from eclipse_compositor.ui.widgets.gallery.preview import FramePreview
@@ -91,20 +91,6 @@ class GalleryBar(QWidget):
         canvas_layout.setContentsMargins(0, 12, 0, 0)
         canvas_layout.setSpacing(6)
 
-        self.project_media_header = QWidget()
-        project_media_header_layout = QHBoxLayout(self.project_media_header)
-        project_media_header_layout.setContentsMargins(0, 0, 0, 0)
-        project_media_header_layout.setSpacing(6)
-        project_media_title = QLabel("PROJECT MEDIA")
-        project_media_title.setStyleSheet(
-            f"color: {COLOR.text_muted}; font-size: 11px; font-weight: 600;"
-        )
-        self.project_gallery_toggle = GalleryVisibilityButton("plus.svg", "Show project gallery")
-        project_media_header_layout.addWidget(project_media_title)
-        project_media_header_layout.addStretch(1)
-        project_media_header_layout.addWidget(self.project_gallery_toggle)
-        self.project_media_header.hide()
-
         canvas_title = QLabel("CANVAS MEDIA")
         canvas_title.setStyleSheet(f"color: {COLOR.text_muted}; font-size: 11px; font-weight: 600;")
         self.canvas_header = QWidget()
@@ -117,7 +103,6 @@ class GalleryBar(QWidget):
             self.canvas_toolbar,
             alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
         )
-        canvas_layout.addWidget(self.project_media_header)
         canvas_layout.addWidget(self.canvas_header)
         canvas_layout.addWidget(self.canvas_hint)
         canvas_layout.addWidget(self.canvas_list)
@@ -148,7 +133,6 @@ class GalleryBar(QWidget):
         self.toolbar.sort_mode_changed.connect(self.sort_mode_changed.emit)
         self.toolbar.show_only_favorites_changed.connect(self.show_only_favorites_changed.emit)
         self.canvas_toolbar.view_mode_changed.connect(self.canvas_view_mode_changed.emit)
-        self.project_gallery_toggle.clicked.connect(self._toggle_project_gallery)
 
         self.empty_state.import_clicked.connect(self.import_clicked.emit)
         self.empty_state.files_dropped.connect(self.files_dropped.emit)
@@ -174,14 +158,19 @@ class GalleryBar(QWidget):
         self.project_gallery_hidden_changed.emit(not self._project_gallery_hidden)
 
     def _sync_project_gallery_visibility(self, hidden: bool) -> None:
+        self.header.set_collapsed(hidden)
         if hidden == self._project_gallery_hidden:
-            self.project_media_header.setVisible(hidden)
             return
 
         self._project_gallery_hidden = hidden
-        self.project_widget.setVisible(not hidden)
-        self.project_media_header.setVisible(hidden)
-        self.media_split.setSizes([0, 1] if hidden else [1, 1])
+        self.toolbar.setVisible(not hidden)
+        self.list_container.setVisible(not hidden)
+        self.project_widget.setMaximumHeight(
+            self.header.sizeHint().height() if hidden else 16777215
+        )
+        # Oversized values are clamped by project_widget's maximumHeight; the splitter
+        # hands the remainder to the canvas pane.
+        self.media_split.setSizes([100000, 100000] if hidden else [1, 1])
 
     def _on_remove_selected(self) -> None:
         rows = self.list.selected_original_indices()

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMenu,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -55,9 +56,17 @@ class GalleryHeader(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
+
+        actions_row = QHBoxLayout()
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(6)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
 
         title = QLabel("PROJECT MEDIA")
         title.setStyleSheet(
@@ -166,12 +175,17 @@ class GalleryHeader(QWidget):
         self.collapse_btn = GalleryVisibilityButton("minus.svg", "Hide project gallery")
         self.collapse_btn.clicked.connect(self.collapse_clicked.emit)
 
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self._count_badge, alignment=Qt.AlignmentFlag.AlignVCenter)
-        layout.addStretch(1)
-        layout.addWidget(self.import_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.more_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self.collapse_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(actions_row)
+        layout.addLayout(title_row)
+
+        actions_row.addStretch(1)
+        actions_row.addWidget(self.import_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+        actions_row.addWidget(self.more_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        title_row.addWidget(title, alignment=Qt.AlignmentFlag.AlignVCenter)
+        title_row.addWidget(self._count_badge, alignment=Qt.AlignmentFlag.AlignVCenter)
+        title_row.addStretch(1)
+        title_row.addWidget(self.collapse_btn, alignment=Qt.AlignmentFlag.AlignVCenter)
 
     def _show_more_menu(self) -> None:
         pos = self.more_btn.mapToGlobal(QPoint(0, self.more_btn.height() + 2))
@@ -193,6 +207,13 @@ class GalleryHeader(QWidget):
     def set_import_enabled(self, enabled: bool) -> None:
         """Enable or disable the Import action button."""
         self.import_btn.setEnabled(enabled)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        """Toggle the expand/collapse icon and tooltip on the visibility button."""
+        icon_name = "plus.svg" if collapsed else "minus.svg"
+        tooltip = "Show project gallery" if collapsed else "Hide project gallery"
+        self.collapse_btn.setIcon(qicon_from_path(icon_path(icon_name), size=14))
+        self.collapse_btn.setToolTip(tooltip)
 
     def set_selection_actions_enabled(self, has_selection: bool, has_items: bool) -> None:
         """Enable or disable actions in the batch menu."""
