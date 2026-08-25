@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QSizePolicy,
     QSplitter,
     QStackedLayout,
     QVBoxLayout,
@@ -73,6 +74,7 @@ class GalleryBar(QWidget):
         self.canvas_toolbar = GalleryToolbar(include_icon_mode=False)
         self.canvas_toolbar.sort_mode.hide()
         self.canvas_toolbar.favorites_btn.hide()
+        self.canvas_toolbar.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.canvas_list = FrameListWidget()
         self.canvas_list.set_canvas_mode(True)
 
@@ -111,10 +113,13 @@ class GalleryBar(QWidget):
         canvas_header_layout.setSpacing(6)
         canvas_header_layout.addWidget(canvas_title)
         canvas_header_layout.addStretch(1)
-        canvas_header_layout.addWidget(self.canvas_hint)
+        canvas_header_layout.addWidget(
+            self.canvas_toolbar,
+            alignment=Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+        )
         canvas_layout.addWidget(self.project_media_header)
         canvas_layout.addWidget(self.canvas_header)
-        canvas_layout.addWidget(self.canvas_toolbar)
+        canvas_layout.addWidget(self.canvas_hint)
         canvas_layout.addWidget(self.canvas_list)
 
         self.media_split = QSplitter(Qt.Orientation.Vertical)
