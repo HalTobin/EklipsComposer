@@ -37,6 +37,8 @@ def test_project_gallery_can_be_hidden_and_shown() -> None:
     gallery.render(ScreenState(project_gallery_hidden=False))
     assert not gallery.project_widget.isHidden()
     assert gallery.project_media_header.isHidden()
+    assert gallery.header.collapse_btn.size().width() == 20
+    assert gallery.header.collapse_btn.size().height() == 20
     gallery.header.collapse_btn.click()
     assert visibility_changes == [False, True]
 
@@ -68,6 +70,8 @@ def test_gallery_bar_render_state() -> None:
     assert gallery.toolbar.view_mode.currentIndex() == 1
     assert gallery.toolbar.sort_mode.currentData() == GallerySortMode.DATE_TAKEN
     assert gallery.toolbar.favorites_btn.isChecked() is False
+    assert gallery.canvas_hint.text() == "Drag frames to reorder composition"
+    assert gallery.canvas_hint.parent() is gallery.canvas_header
 
 
 def test_gallery_bar_favorites_filter_render() -> None:

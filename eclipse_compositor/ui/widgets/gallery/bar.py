@@ -54,8 +54,8 @@ class GalleryBar(QWidget):
 
         self.header = GalleryHeader()
         self.toolbar = GalleryToolbar()
-        self._hint = HintLabel("Project media and canvas order")
-        self._hint.setStyleSheet(f"color: {COLOR.text_faint}; font-size: 11px;")
+        self.canvas_hint = HintLabel("Project media and canvas order")
+        self.canvas_hint.setStyleSheet(f"color: {COLOR.text_faint}; font-size: 11px;")
 
         self.list_container = QWidget()
         self._stack = QStackedLayout(self.list_container)
@@ -82,7 +82,6 @@ class GalleryBar(QWidget):
         project_layout.setSpacing(8)
         project_layout.addWidget(self.header)
         project_layout.addWidget(self.toolbar)
-        project_layout.addWidget(self._hint)
         project_layout.addWidget(self.list_container)
 
         canvas_widget = QWidget()
@@ -106,8 +105,15 @@ class GalleryBar(QWidget):
 
         canvas_title = QLabel("CANVAS MEDIA")
         canvas_title.setStyleSheet(f"color: {COLOR.text_muted}; font-size: 11px; font-weight: 600;")
+        self.canvas_header = QWidget()
+        canvas_header_layout = QHBoxLayout(self.canvas_header)
+        canvas_header_layout.setContentsMargins(0, 0, 0, 0)
+        canvas_header_layout.setSpacing(6)
+        canvas_header_layout.addWidget(canvas_title)
+        canvas_header_layout.addStretch(1)
+        canvas_header_layout.addWidget(self.canvas_hint)
         canvas_layout.addWidget(self.project_media_header)
-        canvas_layout.addWidget(canvas_title)
+        canvas_layout.addWidget(self.canvas_header)
         canvas_layout.addWidget(self.canvas_toolbar)
         canvas_layout.addWidget(self.canvas_list)
 
@@ -263,11 +269,11 @@ class GalleryBar(QWidget):
 
         if not state.images:
             self._stack.setCurrentWidget(self.empty_state)
-            self._hint.setText("Import photos or video to assemble your eclipse")
+            self.canvas_hint.setText("Import photos or video to assemble your eclipse")
         else:
             self._stack.setCurrentWidget(self.list)
             drag_enabled = index_map.can_reorder
-            self._hint.setText(
+            self.canvas_hint.setText(
                 "Drag frames to reorder composition" if drag_enabled else "Disable favorites filter to reorder"
             )
 

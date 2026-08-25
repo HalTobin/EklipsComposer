@@ -20,24 +20,23 @@ class GalleryVisibilityButton(QPushButton):
 
     def __init__(self, icon_name: str, tooltip: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedSize(28, 28)
+        self.setFixedSize(20, 20)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tooltip)
-        self.setIcon(qicon_from_path(icon_path(icon_name), size=16))
-        self.setIconSize(QSize(16, 16))
+        self.setIcon(qicon_from_path(icon_path(icon_name), size=14))
+        self.setIconSize(QSize(14, 14))
         self.setStyleSheet(
             f"""
             QPushButton {{
-                background: {COLOR.bg_sunken};
+                background: transparent;
                 color: {COLOR.text_muted};
-                border: 1px solid {COLOR.border};
-                border-radius: 6px;
+                border: none;
+                border-radius: 4px;
                 padding: 0px;
             }}
             QPushButton:hover {{
                 background: {COLOR.bg_hover};
                 color: {COLOR.text};
-                border-color: {COLOR.border_strong};
             }}
             QPushButton:pressed {{ background: {COLOR.bg_sunken}; }}
             """
