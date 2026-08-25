@@ -85,6 +85,13 @@ class UpdateCanvasGalleryViewMode(ScreenAction):
 
 
 @dataclass(frozen=True)
+class UpdateProjectGalleryHidden(ScreenAction):
+    """Show or hide the project frame gallery above the canvas media list."""
+
+    value: bool
+
+
+@dataclass(frozen=True)
 class UpdateGallerySortMode(ScreenAction):
     """Sort frames by title or EXIF capture date."""
 

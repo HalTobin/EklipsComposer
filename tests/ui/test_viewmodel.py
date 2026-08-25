@@ -21,6 +21,7 @@ from eclipse_compositor.ui.actions import (
     SelectImage,
     SelectSidebarTab,
     UpdateBrightness,
+    UpdateProjectGalleryHidden,
 )
 from eclipse_compositor.ui.state import (
     BlockingJob,
@@ -89,6 +90,19 @@ class TestSelectSidebarTab:
         vm.state_changed.connect(received.append)
 
         vm.dispatch(SelectSidebarTab(SidebarTab.COMPOSITE))
+
+        assert received == []
+
+
+class TestProjectGalleryVisibility:
+    def test_updates_visibility_and_ignores_the_same_value(self, vm: ScreenViewModel) -> None:
+        vm.dispatch(UpdateProjectGalleryHidden(True))
+
+        assert vm.state.project_gallery_hidden is True
+
+        received: list = []
+        vm.state_changed.connect(received.append)
+        vm.dispatch(UpdateProjectGalleryHidden(True))
 
         assert received == []
 

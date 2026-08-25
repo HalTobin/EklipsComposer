@@ -55,6 +55,7 @@ from eclipse_compositor.ui.actions import (
     UpdateGalleryShowOnlyFavorites,
     UpdateGallerySortMode,
     UpdateGalleryViewMode,
+    UpdateProjectGalleryHidden,
     UpdateGridColumns,
     UpdateGridRows,
     UpdateLayout,
@@ -294,6 +295,9 @@ class ScreenView(QMainWindow):
         )
         self.gallery.canvas_view_mode_changed.connect(
             lambda v: self.view_model.dispatch(UpdateCanvasGalleryViewMode(v))
+        )
+        self.gallery.project_gallery_hidden_changed.connect(
+            lambda hidden: self.view_model.dispatch(UpdateProjectGalleryHidden(hidden))
         )
         self.gallery.sort_mode_changed.connect(
             lambda v: self.view_model.dispatch(UpdateGallerySortMode(v))

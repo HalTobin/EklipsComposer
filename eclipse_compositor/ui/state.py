@@ -152,6 +152,7 @@ class ScreenState:
     gallery_sort_mode: GallerySortMode = GallerySortMode.TITLE
     gallery_show_only_favorites: bool = False
     canvas_gallery_view_mode: GalleryViewMode = GalleryViewMode.LIST_SIMPLE
+    project_gallery_hidden: bool = False
     project_media: tuple[MediaItem, ...] = ()
     canvas_media: tuple[CanvasItem, ...] = ()
     project_sort_mode: ProjectSortMode = ProjectSortMode.NAME

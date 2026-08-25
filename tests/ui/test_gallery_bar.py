@@ -21,6 +21,26 @@ def test_gallery_bar_initialization() -> None:
     assert gallery.frame_preview is not None
 
 
+def test_project_gallery_can_be_hidden_and_shown() -> None:
+    _get_app()
+    gallery = GalleryBar()
+    visibility_changes: list[bool] = []
+    gallery.project_gallery_hidden_changed.connect(visibility_changes.append)
+
+    gallery.render(ScreenState(project_gallery_hidden=True))
+
+    assert gallery.project_widget.isHidden()
+    assert not gallery.project_media_header.isHidden()
+    gallery.project_gallery_toggle.click()
+    assert visibility_changes == [False]
+
+    gallery.render(ScreenState(project_gallery_hidden=False))
+    assert not gallery.project_widget.isHidden()
+    assert gallery.project_media_header.isHidden()
+    gallery.header.collapse_btn.click()
+    assert visibility_changes == [False, True]
+
+
 def test_gallery_bar_render_state() -> None:
     _get_app()
     gallery = GalleryBar()

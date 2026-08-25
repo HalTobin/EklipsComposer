@@ -6,6 +6,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QHBoxLayout,
     QLabel,
     QSplitter,
     QStackedLayout,
@@ -15,7 +16,7 @@ from PySide6.QtWidgets import (
 
 from eclipse_compositor.ui.state import GallerySortMode, GalleryViewMode, ImageItem, JobStatus, ScreenState
 from eclipse_compositor.ui.theme import COLOR, EmptyState, HintLabel
-from eclipse_compositor.ui.widgets.gallery.header import GalleryHeader
+from eclipse_compositor.ui.widgets.gallery.header import GalleryHeader, GalleryVisibilityButton
 from eclipse_compositor.ui.widgets.gallery.index_map import DisplayIndexMap
 from eclipse_compositor.ui.widgets.gallery.list import FrameListWidget
 from eclipse_compositor.ui.widgets.gallery.preview import FramePreview
@@ -37,6 +38,7 @@ class GalleryBar(QWidget):
     sort_mode_changed = Signal(object)  # GallerySortMode
     show_only_favorites_changed = Signal(bool)
     canvas_view_mode_changed = Signal(object)  # GalleryViewMode
+    project_gallery_hidden_changed = Signal(bool)
     select_all_clicked = Signal()
     unselect_all_clicked = Signal()
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -74,8 +76,8 @@ class GalleryBar(QWidget):
         self.canvas_list = FrameListWidget()
         self.canvas_list.set_canvas_mode(True)
 
-        project_widget = QWidget()
-        project_layout = QVBoxLayout(project_widget)
+        self.project_widget = QWidget()
+        project_layout = QVBoxLayout(self.project_widget)
         project_layout.setContentsMargins(0, 0, 0, 0)
         project_layout.setSpacing(8)
         project_layout.addWidget(self.header)
@@ -87,22 +89,40 @@ class GalleryBar(QWidget):
         canvas_layout = QVBoxLayout(canvas_widget)
         canvas_layout.setContentsMargins(0, 12, 0, 0)
         canvas_layout.setSpacing(6)
+
+        self.project_media_header = QWidget()
+        project_media_header_layout = QHBoxLayout(self.project_media_header)
+        project_media_header_layout.setContentsMargins(0, 0, 0, 0)
+        project_media_header_layout.setSpacing(6)
+        project_media_title = QLabel("PROJECT MEDIA")
+        project_media_title.setStyleSheet(
+            f"color: {COLOR.text_muted}; font-size: 11px; font-weight: 600;"
+        )
+        self.project_gallery_toggle = GalleryVisibilityButton("plus.svg", "Show project gallery")
+        project_media_header_layout.addWidget(project_media_title)
+        project_media_header_layout.addStretch(1)
+        project_media_header_layout.addWidget(self.project_gallery_toggle)
+        self.project_media_header.hide()
+
         canvas_title = QLabel("CANVAS MEDIA")
         canvas_title.setStyleSheet(f"color: {COLOR.text_muted}; font-size: 11px; font-weight: 600;")
+        canvas_layout.addWidget(self.project_media_header)
         canvas_layout.addWidget(canvas_title)
         canvas_layout.addWidget(self.canvas_toolbar)
         canvas_layout.addWidget(self.canvas_list)
 
-        media_split = QSplitter(Qt.Orientation.Vertical)
-        media_split.addWidget(project_widget)
-        media_split.addWidget(canvas_widget)
-        media_split.setHandleWidth(0)
-        media_split.setStyleSheet("QSplitter::handle { background: transparent; }")
-        media_split.setStretchFactor(0, 1)
-        media_split.setStretchFactor(1, 1)
-        media_split.setSizes([400, 300])
+        self.media_split = QSplitter(Qt.Orientation.Vertical)
+        self.media_split.addWidget(self.project_widget)
+        self.media_split.addWidget(canvas_widget)
+        self.media_split.setHandleWidth(0)
+        self.media_split.setStyleSheet("QSplitter::handle { background: transparent; }")
+        self.media_split.setStretchFactor(0, 1)
+        self.media_split.setStretchFactor(1, 1)
+        self.media_split.setSizes([400, 300])
+        self._project_gallery_hidden = False
+        self._sync_project_gallery_visibility(False)
 
-        layout.addWidget(media_split, stretch=3)
+        layout.addWidget(self.media_split, stretch=3)
         layout.addWidget(self.frame_preview, stretch=1)
         self.setMinimumWidth(220)
 
@@ -111,11 +131,13 @@ class GalleryBar(QWidget):
         self.header.unselect_all_clicked.connect(self.unselect_all_clicked.emit)
         self.header.toggle_favorite_clicked.connect(self._on_favorite_selected)
         self.header.remove_selected_clicked.connect(self._on_remove_selected)
+        self.header.collapse_clicked.connect(self._toggle_project_gallery)
 
         self.toolbar.view_mode_changed.connect(self.view_mode_changed.emit)
         self.toolbar.sort_mode_changed.connect(self.sort_mode_changed.emit)
         self.toolbar.show_only_favorites_changed.connect(self.show_only_favorites_changed.emit)
         self.canvas_toolbar.view_mode_changed.connect(self.canvas_view_mode_changed.emit)
+        self.project_gallery_toggle.clicked.connect(self._toggle_project_gallery)
 
         self.empty_state.import_clicked.connect(self.import_clicked.emit)
         self.empty_state.files_dropped.connect(self.files_dropped.emit)
@@ -136,6 +158,19 @@ class GalleryBar(QWidget):
     def _on_selection_state_changed(self, has_selection: bool, has_current: bool) -> None:
         has_items = bool(self._items)
         self.header.set_selection_actions_enabled(has_selection or has_current, has_items)
+
+    def _toggle_project_gallery(self) -> None:
+        self.project_gallery_hidden_changed.emit(not self._project_gallery_hidden)
+
+    def _sync_project_gallery_visibility(self, hidden: bool) -> None:
+        if hidden == self._project_gallery_hidden:
+            self.project_media_header.setVisible(hidden)
+            return
+
+        self._project_gallery_hidden = hidden
+        self.project_widget.setVisible(not hidden)
+        self.project_media_header.setVisible(hidden)
+        self.media_split.setSizes([0, 1] if hidden else [1, 1])
 
     def _on_remove_selected(self) -> None:
         rows = self.list.selected_original_indices()
@@ -200,6 +235,7 @@ class GalleryBar(QWidget):
     def render(self, state: ScreenState) -> None:
         """Rebuild and synchronize the gallery with application state."""
         self._items = state.images
+        self._sync_project_gallery_visibility(state.project_gallery_hidden)
         index_map = DisplayIndexMap(
             images=state.images,
             show_only_favorites=state.gallery_show_only_favorites,

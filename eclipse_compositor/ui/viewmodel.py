@@ -61,6 +61,7 @@ from eclipse_compositor.ui.actions import (
     UpdateGalleryShowOnlyFavorites,
     UpdateGallerySortMode,
     UpdateGalleryViewMode,
+    UpdateProjectGalleryHidden,
     UpdateGridColumns,
     UpdateGridRows,
     UpdateLayout,
@@ -448,6 +449,15 @@ class ScreenViewModel(QObject):
                 )
                 next_state = self.use_cases.update_canvas_gallery_view_mode.invoke(
                     self._state, mode
+                )
+                if next_state is self._state:
+                    return
+                self._emit(next_state)
+
+            case UpdateProjectGalleryHidden(value=value):
+                next_state = self.use_cases.update_project_gallery_hidden.invoke(
+                    self._state,
+                    bool(value),
                 )
                 if next_state is self._state:
                     return
