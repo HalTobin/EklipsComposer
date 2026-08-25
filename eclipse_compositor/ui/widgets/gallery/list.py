@@ -59,6 +59,7 @@ class FrameListWidget(QListWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._updating = False
+        self._canvas_mode = False
         self._index_map = DisplayIndexMap()
         self._items: tuple[ImageItem, ...] = ()
 
@@ -81,6 +82,11 @@ class FrameListWidget(QListWidget):
         self.itemSelectionChanged.connect(self._on_selection_changed)
         self.customContextMenuRequested.connect(self._on_context_menu)
         self.model().rowsMoved.connect(self._on_rows_moved)
+
+    def set_canvas_mode(self, enabled: bool) -> None:
+        """Configure the list for composition-only canvas frames."""
+        self._canvas_mode = enabled
+        self._delegate.set_show_enabled_control(not enabled)
 
     # ---- Delegate interaction handlers ----
 
@@ -121,6 +127,8 @@ class FrameListWidget(QListWidget):
                 self.files_dropped.emit(tuple(paths))
             return
         super().dropEvent(event)
+        if self._canvas_mode:
+            self._on_rows_moved()
 
     # ---- Keyboard Shortcuts ----
 
@@ -200,6 +208,13 @@ class FrameListWidget(QListWidget):
         if visible_row not in {self.row(it) for it in self.selectedItems()}:
             self.clearSelection()
             self.setCurrentRow(visible_row)
+
+        if self._canvas_mode:
+            menu = QMenu(self)
+            remove_action = menu.addAction("Remove from canvas")
+            remove_action.triggered.connect(self._on_context_remove)
+            menu.exec(self.viewport().mapToGlobal(pos))
+            return
 
         item = self._items[original]
         menu = QMenu(self)

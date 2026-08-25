@@ -84,8 +84,37 @@ def test_canvas_media_reflects_enabled_composition_frames() -> None:
         ImageItem(path=Path("third.jpg"), enabled=True, detection_ok=True),
     )
 
-    gallery.render(ScreenState(images=images))
+    gallery.render(
+        ScreenState(
+            images=images,
+            canvas_gallery_view_mode=GalleryViewMode.LIST_SIMPLE,
+        )
+    )
 
-    assert gallery.canvas_model.rowCount() == 2
-    assert gallery.canvas_model.data(gallery.canvas_model.index(0)) == "first.jpg"
-    assert gallery.canvas_model.data(gallery.canvas_model.index(1)) == "third.jpg"
+    assert gallery.canvas_list.count() == 2
+    assert gallery.canvas_toolbar.view_mode.currentIndex() == 1
+    assert len(gallery.canvas_toolbar.view_mode._buttons) == 2
+    assert gallery.canvas_list._delegate._show_enabled_control is False
+
+    selected_indices: list[int] = []
+    gallery.select_image.connect(selected_indices.append)
+    gallery.canvas_list.row_selected.emit(1)
+    assert selected_indices == [2]
+
+    reordered_images: list[tuple[ImageItem, ...]] = []
+    gallery.reorder_images.connect(reordered_images.append)
+    gallery.canvas_list.rows_reordered.emit(
+        ((Path("third.jpg"), True), (Path("first.jpg"), True))
+    )
+    assert [item.path.name for item in reordered_images[0]] == [
+        "third.jpg",
+        "hidden.jpg",
+        "first.jpg",
+    ]
+
+    disabled_frames: list[tuple[int, bool]] = []
+    gallery.toggle_image.connect(
+        lambda index, enabled: disabled_frames.append((index, enabled))
+    )
+    gallery.canvas_list.remove_requested.emit((0,))
+    assert disabled_frames == [(2, False)]

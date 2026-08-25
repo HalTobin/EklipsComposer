@@ -53,6 +53,7 @@ from eclipse_compositor.ui.actions import (
     ToggleImage,
     UpdateArcAngle,
     UpdateBrightness,
+    UpdateCanvasGalleryViewMode,
     UpdateContrast,
     UpdateCropSize,
     UpdateDirection,
@@ -433,6 +434,19 @@ class ScreenViewModel(QObject):
                     else GalleryViewMode(value)
                 )
                 next_state = self.use_cases.update_gallery_view_mode.invoke(
+                    self._state, mode
+                )
+                if next_state is self._state:
+                    return
+                self._emit(next_state)
+
+            case UpdateCanvasGalleryViewMode(value=value):
+                mode = (
+                    value
+                    if isinstance(value, GalleryViewMode)
+                    else GalleryViewMode(value)
+                )
+                next_state = self.use_cases.update_canvas_gallery_view_mode.invoke(
                     self._state, mode
                 )
                 if next_state is self._state:

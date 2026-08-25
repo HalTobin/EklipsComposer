@@ -47,6 +47,7 @@ from eclipse_compositor.ui.actions import (
     ToggleImage,
     UpdateArcAngle,
     UpdateBrightness,
+    UpdateCanvasGalleryViewMode,
     UpdateContrast,
     UpdateCropSize,
     UpdateDirection,
@@ -290,6 +291,9 @@ class ScreenView(QMainWindow):
         self.gallery.files_dropped.connect(self._import_paths)
         self.gallery.view_mode_changed.connect(
             lambda v: self.view_model.dispatch(UpdateGalleryViewMode(v))
+        )
+        self.gallery.canvas_view_mode_changed.connect(
+            lambda v: self.view_model.dispatch(UpdateCanvasGalleryViewMode(v))
         )
         self.gallery.sort_mode_changed.connect(
             lambda v: self.view_model.dispatch(UpdateGallerySortMode(v))

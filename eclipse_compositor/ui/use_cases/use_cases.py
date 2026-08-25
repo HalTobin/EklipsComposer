@@ -35,6 +35,7 @@ from eclipse_compositor.ui.use_cases.set_all_enabled_use_case import SetAllEnabl
 from eclipse_compositor.ui.use_cases.toggle_favorite_use_case import ToggleFavoriteUseCase
 from eclipse_compositor.ui.use_cases.toggle_image_use_case import ToggleImageUseCase
 from eclipse_compositor.ui.use_cases.update_canvas_use_case import UpdateCanvasUseCase
+from eclipse_compositor.ui.use_cases.update_canvas_gallery_view_mode_use_case import UpdateCanvasGalleryViewModeUseCase
 from eclipse_compositor.ui.use_cases.update_gallery_show_only_favorites_use_case import UpdateGalleryShowOnlyFavoritesUseCase
 from eclipse_compositor.ui.use_cases.toggle_project_favorite_use_case import ToggleProjectFavoriteUseCase
 from eclipse_compositor.ui.use_cases.sort_project_media_use_case import SortProjectMediaUseCase
@@ -64,6 +65,7 @@ class UseCases:
     toggle_favorite: ToggleFavoriteUseCase = ToggleFavoriteUseCase()
     set_all_enabled: SetAllEnabledUseCase = SetAllEnabledUseCase()
     update_gallery_view_mode: UpdateGalleryViewModeUseCase = UpdateGalleryViewModeUseCase()
+    update_canvas_gallery_view_mode: UpdateCanvasGalleryViewModeUseCase = UpdateCanvasGalleryViewModeUseCase()
     update_gallery_sort_mode: UpdateGallerySortModeUseCase = UpdateGallerySortModeUseCase()
     update_gallery_show_only_favorites: UpdateGalleryShowOnlyFavoritesUseCase = UpdateGalleryShowOnlyFavoritesUseCase()
     toggle_project_favorite: ToggleProjectFavoriteUseCase = ToggleProjectFavoriteUseCase()

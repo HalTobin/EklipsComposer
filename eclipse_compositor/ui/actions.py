@@ -78,6 +78,13 @@ class UpdateGalleryViewMode(ScreenAction):
 
 
 @dataclass(frozen=True)
+class UpdateCanvasGalleryViewMode(ScreenAction):
+    """Switch the visual density of the canvas frame list."""
+
+    value: GalleryViewMode
+
+
+@dataclass(frozen=True)
 class UpdateGallerySortMode(ScreenAction):
     """Sort frames by title or EXIF capture date."""
 

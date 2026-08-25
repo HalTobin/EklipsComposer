@@ -33,9 +33,13 @@ class GalleryItemDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self._view_mode = GalleryViewMode.LIST_PREVIEW
         self._hover_row: int = -1
+        self._show_enabled_control = True
 
     def set_view_mode(self, mode: GalleryViewMode) -> None:
         self._view_mode = mode
+
+    def set_show_enabled_control(self, show: bool) -> None:
+        self._show_enabled_control = show
 
     def item_size_hint(self, mode: GalleryViewMode) -> QSize:
         if mode == GalleryViewMode.ICON:
@@ -81,7 +85,7 @@ class GalleryItemDelegate(QStyledItemDelegate):
                 if star_rect.contains(pos):
                     self.favorite_toggled.emit(visible_row)
                     return True
-                if check_rect.contains(pos):
+                if self._show_enabled_control and check_rect.contains(pos):
                     self.enabled_toggled.emit(visible_row)
                     return True
 
@@ -145,10 +149,12 @@ class GalleryItemDelegate(QStyledItemDelegate):
 
         # 2. Checkbox
         check_rect = self._get_check_rect(rect)
-        self._draw_checkbox(painter, check_rect, item.enabled)
+        if self._show_enabled_control:
+            self._draw_checkbox(painter, check_rect, item.enabled)
 
         # 3. Thumbnail
-        thumb_rect = QRect(check_rect.right() + 8, card.top() + (card.height() - 42) // 2, 42, 42)
+        thumb_left = check_rect.right() + 8 if self._show_enabled_control else card.left() + 8
+        thumb_rect = QRect(thumb_left, card.top() + (card.height() - 42) // 2, 42, 42)
         self._draw_thumbnail(painter, thumb_rect, item)
 
         # 4. Favorite Star
@@ -209,16 +215,16 @@ class GalleryItemDelegate(QStyledItemDelegate):
         else:
             painter.fillPath(card_path, QColor(COLOR.bg_panel))
 
-        # Checkbox
         check_rect = self._get_check_rect(rect)
-        self._draw_checkbox(painter, check_rect, item.enabled)
+        if self._show_enabled_control:
+            self._draw_checkbox(painter, check_rect, item.enabled)
 
         # Star
         star_rect = self._get_star_rect(rect)
         self._draw_star(painter, star_rect, item.favorite, is_hovered)
 
         # Status dot
-        dot_x = check_rect.right() + 8
+        dot_x = check_rect.right() + 8 if self._show_enabled_control else card.left() + 8
         dot_y = card.top() + (card.height() - 6) // 2
         dot_color = (
             QColor(COLOR.danger)

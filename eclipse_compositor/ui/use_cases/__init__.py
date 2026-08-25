@@ -31,6 +31,7 @@ from eclipse_compositor.ui.use_cases.set_all_enabled_use_case import SetAllEnabl
 from eclipse_compositor.ui.use_cases.toggle_favorite_use_case import ToggleFavoriteUseCase
 from eclipse_compositor.ui.use_cases.toggle_image_use_case import ToggleImageUseCase
 from eclipse_compositor.ui.use_cases.update_canvas_use_case import UpdateCanvasUseCase
+from eclipse_compositor.ui.use_cases.update_canvas_gallery_view_mode_use_case import UpdateCanvasGalleryViewModeUseCase
 from eclipse_compositor.ui.use_cases.update_gallery_show_only_favorites_use_case import UpdateGalleryShowOnlyFavoritesUseCase
 from eclipse_compositor.ui.use_cases.update_gallery_sort_mode_use_case import UpdateGallerySortModeUseCase
 from eclipse_compositor.ui.use_cases.update_gallery_view_mode_use_case import UpdateGalleryViewModeUseCase
@@ -72,6 +73,7 @@ __all__ = [
     "ToggleFavoriteUseCase",
     "ToggleImageUseCase",
     "UpdateCanvasUseCase",
+    "UpdateCanvasGalleryViewModeUseCase",
     "UpdateColorimetryUseCase",
     "UpdateGalleryShowOnlyFavoritesUseCase",
     "UpdateGallerySortModeUseCase",

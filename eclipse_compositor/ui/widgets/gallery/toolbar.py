@@ -30,26 +30,32 @@ class GalleryToolbar(QWidget):
     sort_mode_changed = Signal(object)  # GallerySortMode
     show_only_favorites_changed = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        include_icon_mode: bool = True,
+    ) -> None:
         super().__init__(parent)
         self._updating = False
+        self._include_icon_mode = include_icon_mode
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
+        modes = ["Preview", "List"]
+        icons = [_view_mode_icon("rows.svg"), _view_mode_icon("list.svg")]
+        tooltips = ["Preview list with thumbnails", "Compact list"]
+        if include_icon_mode:
+            modes.append("Icons")
+            icons.append(_view_mode_icon("grid.svg"))
+            tooltips.append("Icon grid")
+
         self.view_mode = SegmentedControl(
-            ["Preview", "List", "Icons"],
-            icons=[
-                _view_mode_icon("rows.svg"),
-                _view_mode_icon("list.svg"),
-                _view_mode_icon("grid.svg"),
-            ],
-            tooltips=[
-                "Preview list with thumbnails",
-                "Compact list",
-                "Icon grid",
-            ],
+            modes,
+            icons=icons,
+            tooltips=tooltips,
             compact=True,
         )
         self.view_mode.setToolTip("Frame list appearance")
@@ -117,7 +123,7 @@ class GalleryToolbar(QWidget):
         mode = GalleryViewMode.LIST_PREVIEW
         if index == 1:
             mode = GalleryViewMode.LIST_SIMPLE
-        elif index == 2:
+        elif self._include_icon_mode and index == 2:
             mode = GalleryViewMode.ICON
         self.view_mode_changed.emit(mode)
 
@@ -138,7 +144,7 @@ class GalleryToolbar(QWidget):
         try:
             if view_mode == GalleryViewMode.LIST_SIMPLE:
                 self.view_mode.setCurrentIndex(1)
-            elif view_mode == GalleryViewMode.ICON:
+            elif view_mode == GalleryViewMode.ICON and self._include_icon_mode:
                 self.view_mode.setCurrentIndex(2)
             else:
                 self.view_mode.setCurrentIndex(0)
