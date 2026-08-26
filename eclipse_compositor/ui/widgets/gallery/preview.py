@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import (
     QColor,
     QPainter,
@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from eclipse_compositor.ui.state import ScreenState
-from eclipse_compositor.ui.theme import COLOR, CaptionLabel, FieldLabel
+from eclipse_compositor.ui.theme import COLOR, ActionButton, CaptionLabel, FieldLabel
 from eclipse_compositor.ui.widgets.viewport import bgr_to_qimage
 
 
@@ -195,6 +195,8 @@ class _FittedImage(QWidget):
 class FramePreview(QWidget):
     """Compact preview and metadata tabs for the currently selected gallery frame."""
 
+    adjust_circle_requested = Signal()
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._last_image_ref: object | None = None
@@ -221,6 +223,13 @@ class FramePreview(QWidget):
         self._caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_layout.addWidget(self._caption)
 
+        self.adjust_circle_btn = ActionButton("Adjust Circle...", variant="secondary")
+        self.adjust_circle_btn.setToolTip("Fine-tune disc center and radius detection for this frame")
+        self.adjust_circle_btn.setFixedHeight(28)
+        self.adjust_circle_btn.clicked.connect(self.adjust_circle_requested.emit)
+        self.adjust_circle_btn.setEnabled(False)
+        self._preview_layout.addWidget(self.adjust_circle_btn)
+
         self._properties_widget = QWidget()
         self._properties_layout = QVBoxLayout(self._properties_widget)
         self._properties_layout.setContentsMargins(6, 6, 6, 6)
@@ -244,10 +253,12 @@ class FramePreview(QWidget):
         """Show the selected frame proxy and metadata, or a placeholder if none."""
         index = state.selected_index
         if index is None or not (0 <= index < len(state.images)):
+            self.adjust_circle_btn.setEnabled(False)
             self._show(None, "Select a frame", "")
             self._set_properties_text("<p style='color:#6A7080; padding:4px;'>Select a frame to inspect its EXIF and file details.</p>")
             return
 
+        self.adjust_circle_btn.setEnabled(True)
         item = state.images[index]
         self._selected_path = item.path
         if item.detection_ok is True:

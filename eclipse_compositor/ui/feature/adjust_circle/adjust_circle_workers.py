@@ -38,7 +38,10 @@ class AdjustCircleLoadWorker(QRunnable):
             self.signals.load_finished.emit(image, detection)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Adjust circle load failed")
-            self.signals.failed.emit(str(exc))
+            try:
+                self.signals.failed.emit(str(exc))
+            except RuntimeError:
+                pass
 
 
 class AdjustCircleDetectWorker(QRunnable):
@@ -58,4 +61,7 @@ class AdjustCircleDetectWorker(QRunnable):
             self.signals.detect_finished.emit(detection)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Adjust circle detect failed")
-            self.signals.failed.emit(str(exc))
+            try:
+                self.signals.failed.emit(str(exc))
+            except RuntimeError:
+                pass

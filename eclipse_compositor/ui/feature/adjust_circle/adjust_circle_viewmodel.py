@@ -62,12 +62,20 @@ class AdjustCircleViewModel(QObject):
 
     def dispatch(self, action: AdjustCircleAction) -> None:
         match action:
-            case OpenAdjustCircle(index=index, path=path, threshold=threshold):
+            case OpenAdjustCircle(
+                index=index,
+                path=path,
+                threshold=threshold,
+                existing_detection=existing_det,
+                existing_manual_detection=existing_manual,
+            ):
                 self._state = self._use_cases.load_adjust_circle.invoke(
                     self._state,
-                    path,
-                    index,
-                    threshold,
+                    path=path,
+                    index=index,
+                    threshold=threshold,
+                    existing_detection=existing_det,
+                    existing_manual_detection=existing_manual,
                 )
                 self.state_changed.emit(self._state)
                 self._pool.start(AdjustCircleLoadWorker(path, threshold, self._signals))
@@ -105,27 +113,36 @@ class AdjustCircleViewModel(QObject):
                 )
                 self.state_changed.emit(self._state)
 
+            case ToggleCircleVisibility(visible=visible):
+                self._state = self._use_cases.update_adjust_circle.invoke(
+                    self._state,
+                    show_circle=visible,
+                )
+                self.state_changed.emit(self._state)
+
             case DetectCircleResult(detection=detection):
                 self._state = self._use_cases.update_adjust_circle.invoke(
                     self._state,
                     detection=detection,
+                    clear_manual=True,
                     is_loading=False,
                     is_ready=True,
                 )
                 self.state_changed.emit(self._state)
 
             case LoadAdjustCircleImageResult(image=image, detection=detection):
+                det = self._state.detection if self._state.detection is not None else detection
                 self._state = self._use_cases.update_adjust_circle.invoke(
                     self._state,
                     image_bgr=image,
-                    detection=detection,
+                    detection=det,
                     is_loading=False,
                     is_ready=True,
                 )
                 self.state_changed.emit(self._state)
 
             case ApplyAdjustment():
-                if self._state.image_index is None or self._state.detection is None:
+                if self._state.image_index is None:
                     return
                 self._state = self._use_cases.apply_adjust_circle.invoke(
                     self._state,
@@ -133,7 +150,8 @@ class AdjustCircleViewModel(QObject):
                     self._state.detection,
                 )
                 self.state_changed.emit(self._state)
-                self.manual_detection_applied.emit(self._state.image_index, self._state.detection)
+                if self._state.detection is not None:
+                    self.manual_detection_applied.emit(self._state.image_index, self._state.detection)
 
             case _:
                 logger.debug("Unhandled adjust circle action: %s", type(action).__name__)

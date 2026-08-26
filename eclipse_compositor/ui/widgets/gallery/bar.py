@@ -149,6 +149,8 @@ class GalleryBar(QWidget):
         self.canvas_list.row_selected.connect(self._on_canvas_row_selected)
         self.canvas_list.rows_reordered.connect(self._on_canvas_rows_reordered)
         self.canvas_list.remove_requested.connect(self._on_remove_canvas_frames)
+        self.canvas_list.adjust_circle_requested.connect(self._on_canvas_adjust_circle)
+        self.frame_preview.adjust_circle_requested.connect(self._on_preview_adjust_circle)
 
     def _on_selection_state_changed(self, has_selection: bool, has_current: bool) -> None:
         has_items = bool(self._items)
@@ -203,6 +205,19 @@ class GalleryBar(QWidget):
                 self.select_image.emit(image_index)
                 return
 
+    def _on_canvas_adjust_circle(self, canvas_index: int) -> None:
+        if not (0 <= canvas_index < len(self._canvas_items)):
+            return
+        path = self._canvas_items[canvas_index].path
+        for image_index, item in enumerate(self._items):
+            if item.path == path:
+                self.adjust_circle_requested.emit(image_index)
+                return
+
+    def _on_preview_adjust_circle(self) -> None:
+        if self._selected_index is not None and 0 <= self._selected_index < len(self._items):
+            self.adjust_circle_requested.emit(self._selected_index)
+
     def _on_canvas_rows_reordered(
         self, rows_data: tuple[tuple[Path, bool], ...]
     ) -> None:
@@ -235,6 +250,7 @@ class GalleryBar(QWidget):
     def render(self, state: ScreenState) -> None:
         """Rebuild and synchronize the gallery with application state."""
         self._items = state.images
+        self._selected_index = state.selected_index
         self._sync_project_gallery_visibility(state.project_gallery_hidden)
         index_map = DisplayIndexMap(
             images=state.images,

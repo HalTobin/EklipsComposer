@@ -80,6 +80,7 @@ class FrameListWidget(QListWidget):
 
         self.currentRowChanged.connect(self._on_current_row_changed)
         self.itemSelectionChanged.connect(self._on_selection_changed)
+        self.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.customContextMenuRequested.connect(self._on_context_menu)
         self.model().rowsMoved.connect(self._on_rows_moved)
 
@@ -101,6 +102,12 @@ class FrameListWidget(QListWidget):
         if original is not None and original < len(self._items):
             item = self._items[original]
             self.item_toggled.emit(original, not item.enabled)
+
+    def _on_item_double_clicked(self, item: QListWidgetItem) -> None:
+        visible_row = self.row(item)
+        original = self._index_map.to_original(visible_row)
+        if original is not None and original < len(self._items):
+            self.adjust_circle_requested.emit(original)
 
     # ---- Drag and drop for OS files ----
 
@@ -211,6 +218,9 @@ class FrameListWidget(QListWidget):
 
         if self._canvas_mode:
             menu = QMenu(self)
+            adjust_action = menu.addAction("Adjust circle")
+            adjust_action.triggered.connect(lambda: self.adjust_circle_requested.emit(original))
+            menu.addSeparator()
             remove_action = menu.addAction("Remove from canvas")
             remove_action.triggered.connect(self._on_context_remove)
             menu.exec(self.viewport().mapToGlobal(pos))

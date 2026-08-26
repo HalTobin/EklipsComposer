@@ -17,6 +17,8 @@ class OpenAdjustCircle(AdjustCircleAction):
     index: int
     path: Path
     threshold: int
+    existing_detection: DiscDetection | None = None
+    existing_manual_detection: DiscDetection | None = None
 
 
 @dataclass(frozen=True)

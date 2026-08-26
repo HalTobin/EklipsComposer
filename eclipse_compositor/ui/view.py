@@ -322,6 +322,7 @@ class ScreenView(QMainWindow):
 
         self.view_model.state_changed.connect(self.render)
         self._last_preview_ref: object | None = None
+        self._adjust_circle_dialog: AdjustCircleView | None = None
         self._adjust_circle_vm = AdjustCircleViewModel(self)
         self._adjust_circle_vm.manual_detection_applied.connect(
             self._on_manual_detection_applied
@@ -504,21 +505,6 @@ class ScreenView(QMainWindow):
             return
         event.setDropAction(Qt.DropAction.CopyAction)
         event.accept()
-
-    def _on_adjust_circle_requested(self, index: int) -> None:
-        state = self.view_model.state
-        if not (0 <= index < len(state.images)):
-            return
-        item = state.images[index]
-        dialog = AdjustCircleView(
-            self._adjust_circle_vm,
-            self._adjust_circle_vm.state,
-            parent=self,
-        )
-        self._adjust_circle_vm.dispatch(
-            OpenAdjustCircle(index=index, path=item.path, threshold=state.threshold)
-        )
-        dialog.exec()
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         self._accept_import_drag(event)
@@ -703,21 +689,41 @@ class ScreenView(QMainWindow):
         self._fullscreen.set_preview(preview, fit=False)  # type: ignore[arg-type]
         self._fullscreen.present()
 
-    def _on_adjust_circle_requested(self, index: int) -> None:
+    def _on_adjust_circle_requested(self, index: int | None = None) -> None:
+        logger = logging.getLogger(__name__)
+        logger.debug("_on_adjust_circle_requested called, index=%s", index)
         state = self.view_model.state
-        if not (0 <= index < len(state.images)):
+        if index is None or not isinstance(index, int):
+            index = state.selected_index
+        if index is None or not isinstance(index, int) or not (0 <= index < len(state.images)):
+            logger.debug("Invalid index, aborting dialog creation")
             return
         item = state.images[index]
+        self._adjust_circle_vm.dispatch(
+            OpenAdjustCircle(
+                index=index,
+                path=item.path,
+                threshold=state.threshold,
+                existing_detection=None,
+                existing_manual_detection=item.manual_detection,
+            )
+        )
         dialog = AdjustCircleView(
             self._adjust_circle_vm,
             self._adjust_circle_vm.state,
             parent=self,
         )
-        # Removed fullscreen enforcement
-        self._adjust_circle_vm.dispatch(
-            OpenAdjustCircle(index=index, path=item.path, threshold=state.threshold)
-        )
-        dialog.exec()
+        self._adjust_circle_dialog = dialog
+        # Show the dialog without blocking the event loop.
+        # Use open() for a model‑essence dialog; keep a reference until it closes.
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.finished.connect(lambda _: setattr(self, "_adjust_circle_dialog", None))
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+        logger.debug("AdjustCircleView shown")
+        # Do NOT call exec(); it blocks and can cause the window to disappear.
+
 
     def _on_manual_detection_applied(self, index: int, detection: object) -> None:
         self.view_model.dispatch(ApplyImageDetectionOverride(index=index, detection=detection))

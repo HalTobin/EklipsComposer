@@ -20,11 +20,14 @@ class UpdateAdjustCircleUseCase:
         detection: object | None = None,
         manual_center: tuple[int, int] | None = None,
         manual_radius: float | None = None,
+        clear_manual: bool = False,
         error_message: str | None = None,
         is_loading: bool | None = None,
         is_ready: bool | None = None,
     ) -> AdjustCircleState:
         next_state = state
+        if clear_manual:
+            next_state = replace(next_state, manual_center=None, manual_radius=None)
         if threshold is not None:
             next_state = replace(next_state, threshold=int(threshold))
         if show_circle is not None:
